@@ -1,0 +1,53 @@
+// Models: User, UserIdentity. Enums: UserRole, IdentityProvider.
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum IdentityProvider {
+  PASSWORD
+  GITHUB
+  GOOGLE
+  ATLASSIAN
+}
+
+model User {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email           String    @unique
+  emailVerifiedAt DateTime? @db.Timestamptz(3) @map("email_verified_at")
+  passwordHash    String?   @map("password_hash")
+  displayName     String?   @map("display_name")
+  role            UserRole  @default(USER)
+  isActive        Boolean   @default(true) @map("is_active")
+  lastLoginAt     DateTime? @db.Timestamptz(3) @map("last_login_at")
+  createdAt       DateTime  @default(now()) @db.Timestamptz(3) @map("created_at")
+  updatedAt       DateTime  @updatedAt @db.Timestamptz(3) @map("updated_at")
+
+  identities      UserIdentity[]
+
+  @@map("users")
+}
+
+model UserIdentity {
+  id              String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId          String           @map("user_id") @db.Uuid
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  provider        IdentityProvider
+  providerUserId  String           @map("provider_user_id")
+  providerEmail   String?          @map("provider_email")
+
+  // OAuth tokens encrypted at rest with MASTER_ENCRYPTION_KEY (AES-256-GCM).
+  accessTokenEnc  String?          @map("access_token_enc")
+  refreshTokenEnc String?          @map("refresh_token_enc")
+  tokenExpiresAt  DateTime?        @db.Timestamptz(3) @map("token_expires_at")
+  scopes          String[]
+
+  createdAt       DateTime         @default(now()) @db.Timestamptz(3) @map("created_at")
+  updatedAt       DateTime         @updatedAt @db.Timestamptz(3) @map("updated_at")
+
+  @@unique([provider, providerUserId])
+  @@index([userId])
+  @@map("user_identities")
+}

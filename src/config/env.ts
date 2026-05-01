@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+const booleanString = z.enum(['true', 'false']).transform((v) => v === 'true');
+
 export const envSchema = z.object({
   NODE_ENV: z
     .enum(['development', 'test', 'production'])
@@ -16,7 +18,17 @@ export const envSchema = z.object({
         'MASTER_ENCRYPTION_KEY must be a 32-byte base64 string (generate with: openssl rand -base64 32)',
     }),
 
+  JWT_SECRET: z.string().min(32, {
+    message:
+      'JWT_SECRET must be at least 32 characters (generate with: openssl rand -hex 64)',
+  }),
+
   BOOTSTRAP_ADMIN_EMAIL: z.email(),
+  BOOTSTRAP_ADMIN_PASSWORD: z.string().min(12, {
+    message: 'BOOTSTRAP_ADMIN_PASSWORD must be at least 12 characters',
+  }),
+
+  ALLOW_PUBLIC_SIGNUP: booleanString.default(true),
 });
 
 export type Env = z.infer<typeof envSchema>;

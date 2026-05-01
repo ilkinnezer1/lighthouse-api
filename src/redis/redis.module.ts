@@ -1,4 +1,11 @@
-import { Global, Inject, Logger, Module, OnModuleDestroy, type Provider } from '@nestjs/common';
+import {
+  Global,
+  Inject,
+  Logger,
+  Module,
+  OnModuleDestroy,
+  type Provider,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Redis } from 'ioredis';
 import type { Env } from '../config/env';

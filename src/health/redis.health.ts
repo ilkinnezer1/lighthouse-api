@@ -1,5 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { HealthIndicatorService, type HealthIndicatorResult } from '@nestjs/terminus';
+import {
+  HealthIndicatorService,
+  type HealthIndicatorResult,
+} from '@nestjs/terminus';
 import { Redis } from 'ioredis';
 import { InjectRedis } from '../redis/redis.constants';
 
@@ -13,7 +16,7 @@ export class RedisHealthIndicator {
   async pingCheck(key: string): Promise<HealthIndicatorResult> {
     const indicator = this.healthIndicatorService.check(key);
     try {
-      const pong = await this.redis.ping();
+      const pong: string = await this.redis.ping();
       if (pong !== 'PONG') {
         return indicator.down({ message: `Unexpected ping response: ${pong}` });
       }

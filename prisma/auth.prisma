@@ -15,37 +15,39 @@ enum IdentityProvider {
 model User {
   id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   email           String    @unique
-  emailVerifiedAt DateTime? @db.Timestamptz(3) @map("email_verified_at")
+  emailVerifiedAt DateTime? @map("email_verified_at") @db.Timestamptz(3)
   passwordHash    String?   @map("password_hash")
   displayName     String?   @map("display_name")
   role            UserRole  @default(USER)
   isActive        Boolean   @default(true) @map("is_active")
-  lastLoginAt     DateTime? @db.Timestamptz(3) @map("last_login_at")
-  createdAt       DateTime  @default(now()) @db.Timestamptz(3) @map("created_at")
-  updatedAt       DateTime  @updatedAt @db.Timestamptz(3) @map("updated_at")
+  lastLoginAt     DateTime? @map("last_login_at") @db.Timestamptz(3)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  identities      UserIdentity[]
+  identities     UserIdentity[]
+  gitCredentials GitCredential[]
+  projects       Project[]
 
   @@map("users")
 }
 
 model UserIdentity {
-  id              String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId          String           @map("user_id") @db.Uuid
-  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  provider        IdentityProvider
-  providerUserId  String           @map("provider_user_id")
-  providerEmail   String?          @map("provider_email")
+  provider       IdentityProvider
+  providerUserId String           @map("provider_user_id")
+  providerEmail  String?          @map("provider_email")
 
   // OAuth tokens encrypted at rest with MASTER_ENCRYPTION_KEY (AES-256-GCM).
-  accessTokenEnc  String?          @map("access_token_enc")
-  refreshTokenEnc String?          @map("refresh_token_enc")
-  tokenExpiresAt  DateTime?        @db.Timestamptz(3) @map("token_expires_at")
+  accessTokenEnc  String?   @map("access_token_enc")
+  refreshTokenEnc String?   @map("refresh_token_enc")
+  tokenExpiresAt  DateTime? @map("token_expires_at") @db.Timestamptz(3)
   scopes          String[]
 
-  createdAt       DateTime         @default(now()) @db.Timestamptz(3) @map("created_at")
-  updatedAt       DateTime         @updatedAt @db.Timestamptz(3) @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@unique([provider, providerUserId])
   @@index([userId])

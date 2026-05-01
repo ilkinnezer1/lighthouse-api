@@ -15,6 +15,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import type { User } from '@prisma/client';
+import { Audit } from '../audit/audit.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ensureCan } from '../common/authz';
@@ -31,6 +32,7 @@ export class ProjectsController {
   constructor(private readonly projects: ProjectsService) {}
 
   @Post()
+  @Audit('projects.create')
   async create(@Body() dto: CreateProjectDto, @CurrentUser() user: User) {
     if (dto.subdomain && isReservedSubdomain(dto.subdomain)) {
       throw new BadRequestException('Subdomain is reserved');
@@ -87,6 +89,7 @@ export class ProjectsController {
   }
 
   @Patch(':id')
+  @Audit('projects.update')
   async update(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Body() dto: UpdateProjectDto,
@@ -102,6 +105,7 @@ export class ProjectsController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
+  @Audit('projects.delete')
   async remove(
     @Param('id', new ParseUUIDPipe()) id: string,
     @CurrentUser() user: User,

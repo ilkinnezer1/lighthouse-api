@@ -14,7 +14,7 @@ enum IdentityProvider {
 
 model User {
   id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  email           String    @unique
+  email           String    @unique @db.Citext
   emailVerifiedAt DateTime? @map("email_verified_at") @db.Timestamptz(3)
   passwordHash    String?   @map("password_hash")
   displayName     String?   @map("display_name")
@@ -27,6 +27,7 @@ model User {
   identities     UserIdentity[]
   gitCredentials GitCredential[]
   projects       Project[]
+  auditLogs      AuditLog[]
 
   @@map("users")
 }

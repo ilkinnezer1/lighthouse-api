@@ -9,8 +9,10 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import type { CookieOptions, Response } from 'express';
 import type { User } from '@prisma/client';
+import { Audit } from '../audit/audit.decorator';
 import type { Env } from '../config/env';
 import { AuthService } from './auth.service';
 import { CurrentUser } from './decorators/current-user.decorator';
@@ -29,6 +31,8 @@ export class AuthController {
   ) {}
 
   @Post('signup')
+  @Throttle({ default: { limit: 3, ttl: 60 * 60 * 1000 } })
+  @Audit('users.signup')
   async signup(
     @Body() dto: SignupDto,
     @Res({ passthrough: true }) res: Response,
@@ -40,6 +44,8 @@ export class AuthController {
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 5, ttl: 15 * 60 * 1000 } })
+  @Audit('users.login')
   async login(
     @Body() dto: LoginDto,
     @Res({ passthrough: true }) res: Response,
@@ -51,6 +57,8 @@ export class AuthController {
 
   @Post('logout')
   @HttpCode(HttpStatus.NO_CONTENT)
+  @SkipThrottle()
+  @Audit('users.logout')
   logout(@Res({ passthrough: true }) res: Response) {
     res.clearCookie(COOKIE_NAME, this.cookieOptions());
   }

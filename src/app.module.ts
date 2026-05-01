@@ -8,6 +8,8 @@ import { RedisModule } from './redis/redis.module';
 import { HealthModule } from './health/health.module';
 import { CryptoModule } from './crypto/crypto.module';
 import { AuthModule } from './auth/auth.module';
+import { ProjectsModule } from './projects/projects.module';
+import { BootstrapModule } from './bootstrap/bootstrap.module';
 
 @Module({
   imports: [
@@ -19,6 +21,8 @@ import { AuthModule } from './auth/auth.module';
     PrismaModule,
     RedisModule,
     AuthModule,
+    ProjectsModule,
+    BootstrapModule,
     HealthModule,
     CryptoModule,
   ],

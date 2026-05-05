@@ -11,7 +11,7 @@ import {
 } from '@nestjs/websockets';
 import { Redis } from 'ioredis';
 import type { Subscription } from 'rxjs';
-import type { Server, Socket } from 'socket.io';
+import type { Namespace, Socket } from 'socket.io';
 import { ensureCan } from '../common/authz';
 import type { Env } from '../config/env';
 import { OutboxEvents, type OutboxEvent } from '../outbox/outbox.events';
@@ -47,7 +47,8 @@ export class WsGateway
   private readonly tailers = new Map<string, LogTailer>();
   private outboxSub?: Subscription;
 
-  @WebSocketServer() io!: Server;
+  // Namespaced gateway: this is the `/deployments` Namespace, not the root Server.
+  @WebSocketServer() io!: Namespace;
 
   constructor(
     private readonly jwt: JwtService,
@@ -60,7 +61,19 @@ export class WsGateway
 
   // ─── lifecycle ──────────────────────────────────────────────────
 
-  afterInit(): void {
+  afterInit(namespace: Namespace): void {
+    // Auth as Socket.IO middleware so it completes BEFORE the client
+    // sees `connect` and starts emitting messages. handleConnection
+    // can then assume client.data.user is populated.
+    namespace.use((socket, next) => {
+      authenticateSocket(socket, this.jwt, this.users)
+        .then(() => next())
+        .catch((err: Error) => {
+          this.logger.warn(`auth failed: ${err.message}`);
+          next(err);
+        });
+    });
+
     this.outboxSub = this.outbox.events$.subscribe((e) => this.relayOutbox(e));
   }
 
@@ -73,14 +86,13 @@ export class WsGateway
   // ─── connection ─────────────────────────────────────────────────
 
   async handleConnection(client: Socket): Promise<void> {
-    try {
-      const user = await authenticateSocket(client, this.jwt, this.users);
-      client.data.user = user;
-      await client.join(userRoom(user.id));
-    } catch (err) {
-      this.logger.warn(`auth failed: ${(err as Error).message}`);
+    const user = getSocketUser(client);
+    if (!user) {
+      // Should be unreachable: middleware would have rejected. Defensive only.
       client.disconnect(true);
+      return;
     }
+    await client.join(userRoom(user.id));
   }
 
   async handleDisconnect(): Promise<void> {
@@ -98,7 +110,7 @@ export class WsGateway
       typeof payload?.deploymentId === 'string' ? payload.deploymentId : null;
     if (!deploymentId) return { ok: false, error: 'deploymentId required' };
 
-    const user = client.data.user as SocketUser | undefined;
+    const user = getSocketUser(client);
     if (!user) return { ok: false, error: 'unauthenticated' };
 
     const project = await this.loadProject(deploymentId);
@@ -170,9 +182,8 @@ export class WsGateway
   }
 
   private async gcEmptyTailers(): Promise<void> {
-    const ns = this.io.of('/deployments');
     for (const [id, tailer] of this.tailers) {
-      const size = ns.adapter.rooms.get(deploymentRoom(id))?.size ?? 0;
+      const size = this.io.adapter.rooms.get(deploymentRoom(id))?.size ?? 0;
       if (size === 0) {
         await tailer.stop();
         this.tailers.delete(id);

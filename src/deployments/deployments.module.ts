@@ -1,10 +1,11 @@
 import { Module } from '@nestjs/common';
+import { AuthModule } from '../auth/auth.module';
 import { QueueModule } from '../queue/queue.module';
 import { DeploymentsController } from './deployments.controller';
 import { DeploymentsService } from './deployments.service';
 
 @Module({
-  imports: [QueueModule],
+  imports: [AuthModule, QueueModule],
   controllers: [DeploymentsController],
   providers: [DeploymentsService],
   exports: [DeploymentsService],

@@ -1,0 +1,22 @@
+// Models: AuditLog. One row per state-changing request.
+
+model AuditLog {
+  id           BigInt   @id @default(autoincrement())
+  actorUserId  String?  @map("actor_user_id") @db.Uuid
+  actor        User?    @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  action       String                                    // 'projects.create', 'users.login', ...
+  resourceType String?  @map("resource_type")            // 'projects', 'users', ...
+  resourceId   String?  @map("resource_id") @db.Uuid
+
+  beforeJson   Json?    @map("before_json")              // pre-state (reserved; not written in MVP)
+  afterJson    Json?    @map("after_json")               // sanitized request + response
+
+  ip           String?  @db.Inet
+  userAgent    String?  @map("user_agent")
+
+  createdAt    DateTime @default(now()) @db.Timestamptz(3) @map("created_at")
+
+  @@index([actorUserId, createdAt(sort: Desc)])
+  @@map("audit_log")
+}

@@ -1,0 +1,56 @@
+// Models: Project, Environment. Enums: EnvironmentType.
+
+enum EnvironmentType {
+  PRODUCTION
+  PREVIEW
+  MANUAL
+}
+
+model Project {
+  id      String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ownerId String @map("owner_id") @db.Uuid
+  owner   User   @relation(fields: [ownerId], references: [id])
+
+  name          String
+  slug          String // url-safe, lowercased
+  subdomain     String // per-user namespace
+  repoUrl       String @map("repo_url")
+  defaultBranch String @default("main") @map("default_branch")
+
+  // { strategy: 'dockerfile' | 'compose' | 'sandbox-yml', cmd: [...], envs: {...} }
+  buildConfig Json @default("{}") @map("build_config")
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(3)
+
+  environments Environment[]
+
+  @@unique([ownerId, slug])
+  @@unique([ownerId, subdomain])
+  @@index([ownerId])
+  @@map("projects")
+}
+
+model Environment {
+  id        String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId String  @map("project_id") @db.Uuid
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  name         String // 'production', 'preview-pr-42'
+  type         EnvironmentType
+  branch       String? // nullable for type=MANUAL
+  subdomain    String // usually = name
+  customDomain String?         @map("custom_domain") // CNAME validation in Phase 3
+
+  // AES-256-GCM ciphertext of a single JSON blob: { "KEY": "value", ... }
+  envVarsEnc String? @map("env_vars_enc")
+  active     Boolean @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([projectId, name])
+  @@index([projectId])
+  @@map("environments")
+}

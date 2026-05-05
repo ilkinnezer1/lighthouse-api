@@ -1,0 +1,91 @@
+// Models: Deployment, DeploymentStage, Service.
+// Enums: DeploymentStatus, DeploymentStageStatus.
+
+enum DeploymentStatus {
+  QUEUED
+  CLONING
+  BUILDING
+  PUSHING
+  STARTING
+  RUNNING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
+enum DeploymentStageStatus {
+  PENDING
+  RUNNING
+  SUCCEEDED
+  FAILED
+  SKIPPED
+}
+
+model Deployment {
+  id            String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  environmentId String      @map("environment_id") @db.Uuid
+  environment   Environment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+
+  // SetNull so a deleted user does not erase deployment history.
+  triggeredByUserId String? @map("triggered_by_user_id") @db.Uuid
+  triggeredBy       User?   @relation(fields: [triggeredByUserId], references: [id], onDelete: SetNull)
+
+  status DeploymentStatus @default(QUEUED)
+
+  commitSha     String? @map("commit_sha")
+  commitMessage String? @map("commit_message")
+  commitAuthor  String? @map("commit_author")
+
+  startedAt       DateTime? @map("started_at") @db.Timestamptz(3)
+  finishedAt      DateTime? @map("finished_at") @db.Timestamptz(3)
+  // Worker bumps this every 30s while running; reaper (Phase 5) marks
+  // deployments failed when last_heartbeat_at < now() - 5min.
+  lastHeartbeatAt DateTime? @map("last_heartbeat_at") @db.Timestamptz(3)
+  errorSummary    String?   @map("error_summary")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  stages   DeploymentStage[]
+  services Service[]
+
+  @@index([environmentId, createdAt(sort: Desc)])
+  // Turned into a partial index in the migration SQL.
+  @@index([status])
+  @@map("deployments")
+}
+
+model DeploymentStage {
+  id           String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  deploymentId String     @map("deployment_id") @db.Uuid
+  deployment   Deployment @relation(fields: [deploymentId], references: [id], onDelete: Cascade)
+
+  name    String // 'clone', 'build', 'run', ...
+  status  DeploymentStageStatus @default(PENDING)
+  ordinal Int // order within deployment
+
+  startedAt  DateTime? @map("started_at") @db.Timestamptz(3)
+  finishedAt DateTime? @map("finished_at") @db.Timestamptz(3)
+  // { class, message, file, line, trace } when status = FAILED.
+  errorJson  Json?     @map("error_json")
+
+  @@unique([deploymentId, ordinal])
+  @@index([deploymentId])
+  @@map("deployment_stages")
+}
+
+model Service {
+  id           String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  deploymentId String     @map("deployment_id") @db.Uuid
+  deployment   Deployment @relation(fields: [deploymentId], references: [id], onDelete: Cascade)
+
+  name        String  // 'web', 'api', 'worker' (compose service name)
+  image       String? // 'deploy-{id}:web'
+  containerId String? @map("container_id")
+  host        String? // internal docker network host
+  port        Int?    // container's exposed port
+  isWeb       Boolean @default(false) @map("is_web")
+  status      String? // 'running' | 'exited' | 'failed'
+
+  @@unique([deploymentId, name])
+  @@map("services")
+}

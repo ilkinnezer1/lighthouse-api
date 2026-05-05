@@ -7,7 +7,10 @@ export type Action =
   | 'projects.delete'
   | 'environments.read'
   | 'environments.update'
-  | 'environments.delete';
+  | 'environments.delete'
+  | 'deployments.create'
+  | 'deployments.read'
+  | 'deployments.cancel';
 
 export interface OwnedResource {
   ownerId: string;

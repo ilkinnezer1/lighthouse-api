@@ -1,0 +1,22 @@
+// Model: EventOutbox.
+//
+// Reliable bus from worker to API: Go INSERTs an event row inside the
+// same transaction that flips the deployment status, then a Nest drainer
+// (OutboxModule) polls and emits to WS / email. Guarantees no event lost
+// even if Nest is down at the moment Go finishes.
+
+model EventOutbox {
+  id BigInt @id @default(autoincrement())
+
+  type    String  // 'deploy.succeeded' | 'deploy.failed' | 'deploy.cancelled' | ...
+  userId  String? @map("user_id") @db.Uuid
+  user    User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  payload Json
+
+  drainedAt DateTime? @map("drained_at") @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  // Turned into a partial index in the migration SQL.
+  @@index([drainedAt])
+  @@map("event_outbox")
+}

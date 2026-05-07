@@ -13,6 +13,10 @@ import { HealthModule } from './health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ProjectsModule } from './projects/projects.module';
 import { RedisModule } from './redis/redis.module';
+import { QueueModule } from './queue/queue.module';
+import { DeploymentsModule } from './deployments/deployments.module';
+import { OutboxModule } from './outbox/outbox.module';
+import { WsModule } from './ws/ws.module';
 
 @Module({
   imports: [
@@ -30,6 +34,10 @@ import { RedisModule } from './redis/redis.module';
     AuthModule,
     ProjectsModule,
     BootstrapModule,
+    QueueModule,
+    DeploymentsModule,
+    OutboxModule,
+    WsModule,
     HealthModule,
     CryptoModule,
   ],

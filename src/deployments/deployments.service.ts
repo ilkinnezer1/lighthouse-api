@@ -1,5 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { Deployment, DeploymentStage } from '@prisma/client';
+import { OUTBOX_EVENT_TYPES } from '../outbox/outbox.constants';
 import { PrismaService } from '../prisma/prisma.service';
 import { QueueService } from '../queue/queue.service';
 import { DEFAULT_STAGES } from './deployments.constants';
@@ -22,7 +23,7 @@ export class DeploymentsService {
     triggeredByUserId: string,
   ): Promise<DeploymentWithStages> {
     const deployment = await this.prisma.$transaction(async (tx) => {
-      return tx.deployment.create({
+      const created = await tx.deployment.create({
         data: {
           environmentId,
           triggeredByUserId,
@@ -35,6 +36,23 @@ export class DeploymentsService {
         },
         include: { stages: { orderBy: { ordinal: 'asc' } } },
       });
+
+      // Same TX as the deployment row: if the row commits the event commits.
+      // Drainer (OutboxService) picks it up within ~1s and the WS gateway
+      // relays it to the deployment + user rooms.
+      await tx.eventOutbox.create({
+        data: {
+          type: OUTBOX_EVENT_TYPES.DeploymentQueued,
+          userId: triggeredByUserId,
+          payload: {
+            deploymentId: created.id,
+            environmentId: created.environmentId,
+            status: created.status,
+          },
+        },
+      });
+
+      return created;
     });
 
     try {

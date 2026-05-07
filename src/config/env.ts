@@ -29,6 +29,14 @@ export const envSchema = z.object({
   }),
 
   ALLOW_PUBLIC_SIGNUP: booleanString.default(true),
+
+  // ---- routing ----
+  // `local` → http on *.localhost (no TLS, dev only)
+  // `server` → https on *.<BASE_DOMAIN> (Traefik + Let's Encrypt)
+  MODE: z.enum(['local', 'server']).default('local'),
+  // Apex used to build deploy URLs: <env>.<project>.<username>.<BASE_DOMAIN>.
+  // Defaults to `localhost` so local dev needs no extra config.
+  BASE_DOMAIN: z.string().min(1).default('localhost'),
 });
 
 export type Env = z.infer<typeof envSchema>;

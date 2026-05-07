@@ -45,13 +45,19 @@ export class AuthService {
       throw new ForbiddenException('Public signup is disabled');
     }
 
-    const existingUser = await this.users.findByEmail(dto.email);
-    if (existingUser) {
+    const existingByEmail = await this.users.findByEmail(dto.email);
+    if (existingByEmail) {
       throw new ConflictException('Email already in use');
+    }
+
+    const existingByUsername = await this.users.findByUsername(dto.username);
+    if (existingByUsername) {
+      throw new ConflictException('Username already in use');
     }
 
     return this.users.create({
       email: dto.email,
+      username: dto.username,
       passwordHash: await this.hashPassword(dto.password),
       displayName: dto.displayName,
     });

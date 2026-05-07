@@ -14,8 +14,13 @@ export class UsersService {
     return this.prisma.user.findUnique({ where: { email } });
   }
 
+  findByUsername(username: string): Promise<User | null> {
+    return this.prisma.user.findUnique({ where: { username } });
+  }
+
   create(data: {
     email: string;
+    username: string;
     passwordHash: string;
     displayName?: string;
     role?: UserRole;

@@ -88,7 +88,8 @@ export class AuthController {
   }
 
   private serialize(user: User) {
-    const { id, email, displayName, role, createdAt, lastLoginAt } = user;
-    return { id, email, displayName, role, createdAt, lastLoginAt };
+    const { id, email, username, displayName, role, createdAt, lastLoginAt } =
+      user;
+    return { id, email, username, displayName, role, createdAt, lastLoginAt };
   }
 }

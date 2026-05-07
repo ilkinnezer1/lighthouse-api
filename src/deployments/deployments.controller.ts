@@ -67,14 +67,7 @@ export class DeploymentsController {
     @Param('id', new ParseUUIDPipe()) id: string,
     @CurrentUser() user: User,
   ) {
-    const dep = await this.prisma.deployment.findUnique({
-      where: { id },
-      include: {
-        environment: { include: { project: true } },
-        stages: { orderBy: { ordinal: 'asc' } },
-        services: true,
-      },
-    });
+    const dep = await this.deployments.findById(id);
     if (!dep || dep.environment.project.deletedAt) {
       throw new NotFoundException();
     }

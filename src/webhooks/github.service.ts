@@ -8,6 +8,7 @@ import { Prisma } from '@prisma/client';
 import type { Project } from '@prisma/client';
 import { CryptoService } from '../crypto/crypto.service';
 import { DeploymentsService } from '../deployments/deployments.service';
+import { GithubApiService } from '../github/github-api.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { QueueService } from '../queue/queue.service';
 import { verifyGithubSignature } from './signature';
@@ -33,6 +34,7 @@ export class GithubWebhookService {
     private readonly crypto: CryptoService,
     private readonly deployments: DeploymentsService,
     private readonly queue: QueueService,
+    private readonly github: GithubApiService,
   ) {}
 
   async handle(
@@ -165,6 +167,20 @@ export class GithubWebhookService {
       update: { branch: headRef, active: true },
     });
 
-    await this.deployments.create(env.id, project.ownerId, { sha: headSha });
+    const deployment = await this.deployments.create(env.id, project.ownerId, {
+      sha: headSha,
+    });
+
+    if (
+      (payload.action === 'opened' || payload.action === 'reopened') &&
+      project.providerRepoFullName
+    ) {
+      void this.github.commentOnPR({
+        ownerId: project.ownerId,
+        repoFullName: project.providerRepoFullName,
+        prNumber,
+        body: `Preview deployed: ${deployment.url}`,
+      });
+    }
   }
 }

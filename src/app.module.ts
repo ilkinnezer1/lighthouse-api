@@ -16,6 +16,7 @@ import { RedisModule } from './redis/redis.module';
 import { QueueModule } from './queue/queue.module';
 import { DeploymentsModule } from './deployments/deployments.module';
 import { OutboxModule } from './outbox/outbox.module';
+import { WebhooksModule } from './webhooks/webhooks.module';
 import { WsModule } from './ws/ws.module';
 
 @Module({
@@ -37,6 +38,7 @@ import { WsModule } from './ws/ws.module';
     QueueModule,
     DeploymentsModule,
     OutboxModule,
+    WebhooksModule,
     WsModule,
     HealthModule,
     CryptoModule,

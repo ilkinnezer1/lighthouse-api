@@ -32,6 +32,7 @@ export class BootstrapService implements OnApplicationBootstrap {
 
     await this.users.create({
       email,
+      username: 'admin',
       passwordHash: await this.auth.hashPassword(password),
       displayName: 'Admin',
       role: 'ADMIN',

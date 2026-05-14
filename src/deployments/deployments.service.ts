@@ -1,5 +1,8 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import type { Deployment, DeploymentStage } from '@prisma/client';
+import { buildDeployUrl } from '../common/url';
+import type { Env } from '../config/env';
 import { OUTBOX_EVENT_TYPES } from '../outbox/outbox.constants';
 import { PrismaService } from '../prisma/prisma.service';
 import { QueueService } from '../queue/queue.service';
@@ -9,6 +12,15 @@ export type DeploymentWithStages = Deployment & {
   stages: DeploymentStage[];
 };
 
+type EnvForUrl = {
+  subdomain: string;
+  customDomain: string | null;
+  project: {
+    subdomain: string;
+    owner: { username: string };
+  };
+};
+
 @Injectable()
 export class DeploymentsService {
   private readonly logger = new Logger(DeploymentsService.name);
@@ -16,12 +28,10 @@ export class DeploymentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly queue: QueueService,
+    private readonly config: ConfigService<Env, true>,
   ) {}
 
-  async create(
-    environmentId: string,
-    triggeredByUserId: string,
-  ): Promise<DeploymentWithStages> {
+  async create(environmentId: string, triggeredByUserId: string) {
     const deployment = await this.prisma.$transaction(async (tx) => {
       const created = await tx.deployment.create({
         data: {
@@ -34,12 +44,17 @@ export class DeploymentsService {
             })),
           },
         },
-        include: { stages: { orderBy: { ordinal: 'asc' } } },
+        include: {
+          stages: { orderBy: { ordinal: 'asc' } },
+          environment: {
+            include: {
+              project: {
+                include: { owner: { select: { username: true } } },
+              },
+            },
+          },
+        },
       });
-
-      // Same TX as the deployment row: if the row commits the event commits.
-      // Drainer (OutboxService) picks it up within ~1s and the WS gateway
-      // relays it to the deployment + user rooms.
       await tx.eventOutbox.create({
         data: {
           type: OUTBOX_EVENT_TYPES.DeploymentQueued,
@@ -64,15 +79,51 @@ export class DeploymentsService {
       );
     }
 
-    return deployment;
+    return { ...deployment, url: this.urlFor(deployment.environment) };
   }
 
-  listByEnvironment(environmentId: string): Promise<Deployment[]> {
-    return this.prisma.deployment.findMany({
+  async listByEnvironment(environmentId: string) {
+    const env = await this.prisma.environment.findUnique({
+      where: { id: environmentId },
+      select: {
+        subdomain: true,
+        customDomain: true,
+        project: {
+          select: {
+            subdomain: true,
+            owner: { select: { username: true } },
+          },
+        },
+      },
+    });
+    if (!env) return [];
+
+    const url = this.urlFor(env);
+    const deployments = await this.prisma.deployment.findMany({
       where: { environmentId },
       orderBy: { createdAt: 'desc' },
       take: 50,
     });
+    return deployments.map((d) => ({ ...d, url }));
+  }
+
+  async findById(id: string) {
+    const deployment = await this.prisma.deployment.findUnique({
+      where: { id },
+      include: {
+        stages: { orderBy: { ordinal: 'asc' } },
+        services: true,
+        environment: {
+          include: {
+            project: {
+              include: { owner: { select: { username: true } } },
+            },
+          },
+        },
+      },
+    });
+    if (!deployment) return null;
+    return { ...deployment, url: this.urlFor(deployment.environment) };
   }
 
   async cancel(id: string): Promise<void> {
@@ -86,5 +137,16 @@ export class DeploymentsService {
     }
 
     await this.queue.publishCancel(id);
+  }
+
+  private urlFor(env: EnvForUrl): string {
+    return buildDeployUrl({
+      mode: this.config.get('MODE', { infer: true }),
+      baseDomain: this.config.get('BASE_DOMAIN', { infer: true }),
+      username: env.project.owner.username,
+      projectSubdomain: env.project.subdomain,
+      envSubdomain: env.subdomain,
+      customDomain: env.customDomain,
+    });
   }
 }

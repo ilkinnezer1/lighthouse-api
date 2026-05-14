@@ -17,6 +17,10 @@ model User {
   email           String    @unique @db.Citext
   emailVerifiedAt DateTime? @map("email_verified_at") @db.Timestamptz(3)
   passwordHash    String?   @map("password_hash")
+  // DNS-label-safe handle. Becomes the `<user>` segment of deploy URLs:
+  // <env>.<project>.<username>.<base-domain>. Citext so signup collisions
+  // are case-insensitive (alice / Alice cannot both exist).
+  username        String    @unique @db.Citext
   displayName     String?   @map("display_name")
   role            UserRole  @default(USER)
   isActive        Boolean   @default(true) @map("is_active")

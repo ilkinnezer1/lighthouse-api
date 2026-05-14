@@ -9,8 +9,12 @@ import type { Project } from '@prisma/client';
 import { CryptoService } from '../crypto/crypto.service';
 import { DeploymentsService } from '../deployments/deployments.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { QueueService } from '../queue/queue.service';
 import { verifyGithubSignature } from './signature';
-import type { GithubPushPayload } from './payload.types';
+import type {
+  GithubPullRequestPayload,
+  GithubPushPayload,
+} from './payload.types';
 
 const PROVIDER = 'github';
 
@@ -28,6 +32,7 @@ export class GithubWebhookService {
     private readonly prisma: PrismaService,
     private readonly crypto: CryptoService,
     private readonly deployments: DeploymentsService,
+    private readonly queue: QueueService,
   ) {}
 
   async handle(
@@ -79,6 +84,8 @@ export class GithubWebhookService {
 
     if (headers.event === 'push') {
       await this.handlePush(project, body as GithubPushPayload);
+    } else if (headers.event === 'pull_request') {
+      await this.handlePullRequest(project, body as GithubPullRequestPayload);
     }
 
     return { ok: true };
@@ -108,5 +115,56 @@ export class GithubWebhookService {
       message: payload.head_commit?.message,
       author: payload.head_commit?.author?.name,
     });
+  }
+
+  private async handlePullRequest(
+    project: Project,
+    payload: GithubPullRequestPayload,
+  ): Promise<void> {
+    const prNumber = payload.pull_request.number;
+    const headRef = payload.pull_request.head.ref;
+    const headSha = payload.pull_request.head.sha;
+
+    if (payload.action === 'closed') {
+      const env = await this.prisma.environment.findFirst({
+        where: { projectId: project.id, prNumber },
+      });
+      if (!env) return;
+      await this.prisma.environment.update({
+        where: { id: env.id },
+        data: { active: false },
+      });
+      await this.queue.enqueueTeardown(env.id);
+      return;
+    }
+
+    if (
+      payload.action !== 'opened' &&
+      payload.action !== 'reopened' &&
+      payload.action !== 'synchronize'
+    ) {
+      return;
+    }
+
+    const env = await this.prisma.environment.upsert({
+      where: {
+        projectId_name: {
+          projectId: project.id,
+          name: `preview-pr-${prNumber}`,
+        },
+      },
+      create: {
+        projectId: project.id,
+        name: `preview-pr-${prNumber}`,
+        type: 'PREVIEW',
+        branch: headRef,
+        subdomain: `pr-${prNumber}`,
+        prNumber,
+        active: true,
+      },
+      update: { branch: headRef, active: true },
+    });
+
+    await this.deployments.create(env.id, project.ownerId, { sha: headSha });
   }
 }

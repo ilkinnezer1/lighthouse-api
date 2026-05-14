@@ -4,6 +4,8 @@ import { InjectRedis } from '../redis/redis.constants';
 import {
   BUILD_QUEUE_STREAM,
   FIELD_DEPLOYMENT_ID,
+  FIELD_ENVIRONMENT_ID,
+  TEARDOWN_QUEUE_STREAM,
   cancelChannel,
 } from './queue.constants';
 
@@ -25,6 +27,22 @@ export class QueueService {
       throw new Error('XADD returned no entry ID');
     }
     this.logger.debug(`enqueued build ${deploymentId} as ${entryId}`);
+
+    return entryId;
+  }
+
+  async enqueueTeardown(environmentId: string): Promise<string> {
+    const entryId = await this.redis.xadd(
+      TEARDOWN_QUEUE_STREAM,
+      '*',
+      FIELD_ENVIRONMENT_ID,
+      environmentId,
+    );
+
+    if (!entryId) {
+      throw new Error('XADD returned no entry ID');
+    }
+    this.logger.debug(`enqueued teardown ${environmentId} as ${entryId}`);
 
     return entryId;
   }

@@ -17,6 +17,9 @@ model Project {
   repoUrl       String @map("repo_url")
   defaultBranch String @default("main") @map("default_branch")
 
+  providerRepoFullName String? @map("provider_repo_full_name")
+  webhookSecretEnc     String? @map("webhook_secret_enc")
+
   // { strategy: 'dockerfile' | 'compose' | 'sandbox-yml', cmd: [...], envs: {...} }
   buildConfig Json @default("{}") @map("build_config")
 
@@ -29,6 +32,7 @@ model Project {
   @@unique([ownerId, slug])
   @@unique([ownerId, subdomain])
   @@index([ownerId])
+  @@index([providerRepoFullName])
   @@map("projects")
 }
 
@@ -42,6 +46,7 @@ model Environment {
   branch       String? // nullable for type=MANUAL
   subdomain    String // usually = name
   customDomain String?         @map("custom_domain") // CNAME validation in Phase 3
+  prNumber     Int?            @map("pr_number")
 
   // AES-256-GCM ciphertext of a single JSON blob: { "KEY": "value", ... }
   envVarsEnc String? @map("env_vars_enc")

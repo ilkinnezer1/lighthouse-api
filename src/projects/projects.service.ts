@@ -5,7 +5,10 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { Environment, Project } from '@prisma/client';
+import { randomBytes } from 'node:crypto';
+import { CryptoService } from '../crypto/crypto.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { parseGithubFullName } from './util/repo-url';
 
 export type ProjectWithEnvironments = Project & {
   environments: Environment[];
@@ -13,7 +16,10 @@ export type ProjectWithEnvironments = Project & {
 
 @Injectable()
 export class ProjectsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly crypto: CryptoService,
+  ) {}
 
   async create(
     ownerId: string,
@@ -26,6 +32,11 @@ export class ProjectsService {
     },
   ): Promise<ProjectWithEnvironments> {
     const branch = data.defaultBranch || 'main';
+    const webhookSecretEnc = this.crypto.encrypt(
+      randomBytes(32).toString('hex'),
+    );
+    const providerRepoFullName = parseGithubFullName(data.repoUrl);
+
     try {
       return await this.prisma.project.create({
         data: {
@@ -35,6 +46,8 @@ export class ProjectsService {
           subdomain: data.subdomain,
           repoUrl: data.repoUrl,
           defaultBranch: branch,
+          providerRepoFullName,
+          webhookSecretEnc,
           environments: {
             create: {
               name: 'production',

@@ -19,6 +19,7 @@ import { Audit } from '../audit/audit.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ensureCan } from '../common/authz';
+import { CryptoService } from '../crypto/crypto.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { ProjectsService } from './projects.service';
@@ -29,7 +30,10 @@ const MAX_SUBDOMAIN_TRIES = 5;
 @Controller('projects')
 @UseGuards(JwtAuthGuard)
 export class ProjectsController {
-  constructor(private readonly projects: ProjectsService) {}
+  constructor(
+    private readonly projects: ProjectsService,
+    private readonly crypto: CryptoService,
+  ) {}
 
   @Post()
   @Audit('projects.create')
@@ -85,7 +89,11 @@ export class ProjectsController {
       throw new NotFoundException();
     }
     ensureCan(user, 'projects.read', project);
-    return project;
+
+    const webhookSecret = project.webhookSecretEnc
+      ? this.crypto.decrypt(project.webhookSecretEnc)
+      : null;
+    return { ...project, webhookSecret };
   }
 
   @Patch(':id')

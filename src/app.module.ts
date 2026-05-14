@@ -9,6 +9,7 @@ import { AuthModule } from './auth/auth.module';
 import { BootstrapModule } from './bootstrap/bootstrap.module';
 import { validateEnv } from './config/env';
 import { CryptoModule } from './crypto/crypto.module';
+import { GithubModule } from './github/github.module';
 import { HealthModule } from './health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ProjectsModule } from './projects/projects.module';
@@ -16,6 +17,7 @@ import { RedisModule } from './redis/redis.module';
 import { QueueModule } from './queue/queue.module';
 import { DeploymentsModule } from './deployments/deployments.module';
 import { OutboxModule } from './outbox/outbox.module';
+import { WebhooksModule } from './webhooks/webhooks.module';
 import { WsModule } from './ws/ws.module';
 
 @Module({
@@ -37,6 +39,8 @@ import { WsModule } from './ws/ws.module';
     QueueModule,
     DeploymentsModule,
     OutboxModule,
+    GithubModule,
+    WebhooksModule,
     WsModule,
     HealthModule,
     CryptoModule,

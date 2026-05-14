@@ -1,0 +1,15 @@
+// Model: WebhookDelivery.
+
+model WebhookDelivery {
+  id         String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  provider   String
+  deliveryId String @map("delivery_id")
+  eventType  String @map("event_type")
+  projectId  String? @map("project_id") @db.Uuid
+
+  receivedAt DateTime @default(now()) @map("received_at") @db.Timestamptz(3)
+
+  @@unique([provider, deliveryId])
+  @@index([projectId])
+  @@map("webhook_deliveries")
+}

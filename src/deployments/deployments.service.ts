@@ -31,12 +31,19 @@ export class DeploymentsService {
     private readonly config: ConfigService<Env, true>,
   ) {}
 
-  async create(environmentId: string, triggeredByUserId: string) {
+  async create(
+    environmentId: string,
+    triggeredByUserId: string,
+    commit?: { sha?: string; message?: string; author?: string },
+  ) {
     const deployment = await this.prisma.$transaction(async (tx) => {
       const created = await tx.deployment.create({
         data: {
           environmentId,
           triggeredByUserId,
+          commitSha: commit?.sha,
+          commitMessage: commit?.message,
+          commitAuthor: commit?.author,
           stages: {
             create: DEFAULT_STAGES.map((name, index) => ({
               name,

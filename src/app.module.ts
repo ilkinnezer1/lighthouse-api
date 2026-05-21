@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -13,6 +14,7 @@ import { GithubModule } from './github/github.module';
 import { HealthModule } from './health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ProjectsModule } from './projects/projects.module';
+import { ReaperModule } from './reaper/reaper.module';
 import { RedisModule } from './redis/redis.module';
 import { QueueModule } from './queue/queue.module';
 import { DeploymentsModule } from './deployments/deployments.module';
@@ -30,6 +32,7 @@ import { WsModule } from './ws/ws.module';
     ThrottlerModule.forRoot({
       throttlers: [{ name: 'default', ttl: 60_000, limit: 100 }],
     }),
+    ScheduleModule.forRoot(),
     PrismaModule,
     RedisModule,
     AuditModule,
@@ -44,6 +47,7 @@ import { WsModule } from './ws/ws.module';
     WsModule,
     HealthModule,
     CryptoModule,
+    ReaperModule,
   ],
   controllers: [AppController],
   providers: [AppService, { provide: APP_GUARD, useClass: ThrottlerGuard }],

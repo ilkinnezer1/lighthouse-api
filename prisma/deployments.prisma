@@ -19,6 +19,7 @@ enum DeploymentStageStatus {
   SUCCEEDED
   FAILED
   SKIPPED
+  ROLLED_BACK
 }
 
 model Deployment {
@@ -36,12 +37,16 @@ model Deployment {
   commitMessage String? @map("commit_message")
   commitAuthor  String? @map("commit_author")
 
-  startedAt       DateTime? @map("started_at") @db.Timestamptz(3)
-  finishedAt      DateTime? @map("finished_at") @db.Timestamptz(3)
-  // Worker bumps this every 30s while running; reaper (Phase 5) marks
-  // deployments failed when last_heartbeat_at < now() - 5min.
-  lastHeartbeatAt DateTime? @map("last_heartbeat_at") @db.Timestamptz(3)
-  errorSummary    String?   @map("error_summary")
+  startedAt         DateTime? @map("started_at") @db.Timestamptz(3)
+  finishedAt        DateTime? @map("finished_at") @db.Timestamptz(3)
+  // Worker bumps this every 30s while running; reaper marks deployments
+  // FAILED (or CANCELLED, if cancel_requested_at is set) when
+  // last_heartbeat_at < now() - 3min.
+  lastHeartbeatAt   DateTime? @map("last_heartbeat_at") @db.Timestamptz(3)
+  // Set by Nest when the user requests cancellation. Distinguishes user
+  // intent from worker death for the reaper's status decision.
+  cancelRequestedAt DateTime? @map("cancel_requested_at") @db.Timestamptz(3)
+  errorSummary      String?   @map("error_summary")
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
@@ -63,6 +68,11 @@ model DeploymentStage {
   status  DeploymentStageStatus @default(PENDING)
   ordinal Int // order within deployment
 
+  // Worker increments `attempt` on each try; on transient failure, retries
+  // up to `maxAttempts`. Default of 1 means no retry.
+  attempt     Int @default(0)
+  maxAttempts Int @default(1) @map("max_attempts")
+
   startedAt  DateTime? @map("started_at") @db.Timestamptz(3)
   finishedAt DateTime? @map("finished_at") @db.Timestamptz(3)
   // { class, message, file, line, trace } when status = FAILED.
@@ -78,11 +88,11 @@ model Service {
   deploymentId String     @map("deployment_id") @db.Uuid
   deployment   Deployment @relation(fields: [deploymentId], references: [id], onDelete: Cascade)
 
-  name        String  // 'web', 'api', 'worker' (compose service name)
+  name        String // 'web', 'api', 'worker' (compose service name)
   image       String? // 'deploy-{id}:web'
   containerId String? @map("container_id")
   host        String? // internal docker network host
-  port        Int?    // container's exposed port
+  port        Int? // container's exposed port
   isWeb       Boolean @default(false) @map("is_web")
   status      String? // 'running' | 'exited' | 'failed'
 

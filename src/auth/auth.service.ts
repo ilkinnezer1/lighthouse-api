@@ -7,7 +7,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as argon2 from 'argon2';
-import type { User } from '@prisma/client';
+import { Prisma, type User } from '@prisma/client';
 import type { Env } from '../config/env';
 import { UsersService } from '../users/users.service';
 import type { LoginDto } from './dto/login.dto';
@@ -55,12 +55,24 @@ export class AuthService {
       throw new ConflictException('Username already in use');
     }
 
-    return this.users.create({
-      email: dto.email,
-      username: dto.username,
-      passwordHash: await this.hashPassword(dto.password),
-      displayName: dto.displayName,
-    });
+    try {
+      return await this.users.create({
+        email: dto.email,
+        username: dto.username,
+        passwordHash: await this.hashPassword(dto.password),
+        displayName: dto.displayName,
+      });
+    } catch (err) {
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        const target = (err.meta?.target as string[] | undefined)?.join(',');
+        const field = target?.includes('username') ? 'Username' : 'Email';
+        throw new ConflictException(`${field} already in use`);
+      }
+      throw err;
+    }
   }
 
   async login(dto: LoginDto): Promise<User> {

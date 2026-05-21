@@ -20,7 +20,7 @@ model Project {
   providerRepoFullName String? @map("provider_repo_full_name")
   webhookSecretEnc     String? @map("webhook_secret_enc")
 
-  // { strategy: 'dockerfile' | 'compose' | 'sandbox-yml', cmd: [...], envs: {...} }
+  // Validated by src/projects/dto/build-config.schema.ts.
   buildConfig Json @default("{}") @map("build_config")
 
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)

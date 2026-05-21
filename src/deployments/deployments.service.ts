@@ -145,15 +145,16 @@ export class DeploymentsService {
 
     if (deployment.status === 'QUEUED') {
       const now = new Date();
-      await this.prisma.$transaction(async (tx) => {
-        await tx.deployment.update({
-          where: { id },
+      const won = await this.prisma.$transaction(async (tx) => {
+        const updated = await tx.deployment.updateMany({
+          where: { id, status: 'QUEUED' },
           data: {
             status: 'CANCELLED',
             cancelRequestedAt: now,
             finishedAt: now,
           },
         });
+        if (updated.count === 0) return false;
         await tx.eventOutbox.create({
           data: {
             type: OUTBOX_EVENT_TYPES.DeploymentCancelled,
@@ -161,8 +162,9 @@ export class DeploymentsService {
             payload: { deploymentId: id, reason: 'cancelled-before-pickup' },
           },
         });
+        return true;
       });
-      return;
+      if (won) return;
     }
 
     await this.prisma.deployment.update({

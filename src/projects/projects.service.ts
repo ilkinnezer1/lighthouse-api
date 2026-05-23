@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -8,6 +9,7 @@ import type { Environment, Project } from '@prisma/client';
 import { randomBytes } from 'node:crypto';
 import { CryptoService } from '../crypto/crypto.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { BuildConfigSchema } from './dto/build-config.schema';
 import { parseGithubFullName } from './util/repo-url';
 
 export type ProjectWithEnvironments = Project & {
@@ -95,10 +97,26 @@ export class ProjectsService {
       buildConfig?: Record<string, unknown>;
     },
   ): Promise<Project> {
+    const data: Prisma.ProjectUpdateInput = {
+      name: patch.name,
+      defaultBranch: patch.defaultBranch,
+    };
+
+    if (patch.buildConfig !== undefined) {
+      const parsed = BuildConfigSchema.safeParse(patch.buildConfig);
+      if (!parsed.success) {
+        throw new BadRequestException({
+          message: 'Invalid buildConfig',
+          issues: parsed.error.issues,
+        });
+      }
+      data.buildConfig = parsed.data;
+    }
+
     try {
       return await this.prisma.project.update({
         where: { id, deletedAt: null },
-        data: patch as Prisma.ProjectUpdateInput,
+        data,
       });
     } catch (err) {
       if (

@@ -17,6 +17,8 @@ import { ProjectsModule } from './projects/projects.module';
 import { ReaperModule } from './reaper/reaper.module';
 import { RedisModule } from './redis/redis.module';
 import { QueueModule } from './queue/queue.module';
+import { DatabasesModule } from './databases/databases.module';
+import { SnapshotsModule } from './snapshots/snapshots.module';
 import { DeploymentsModule } from './deployments/deployments.module';
 import { OutboxModule } from './outbox/outbox.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
@@ -40,6 +42,8 @@ import { WsModule } from './ws/ws.module';
     ProjectsModule,
     BootstrapModule,
     QueueModule,
+    DatabasesModule,
+    SnapshotsModule,
     DeploymentsModule,
     OutboxModule,
     GithubModule,

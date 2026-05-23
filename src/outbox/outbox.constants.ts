@@ -9,11 +9,24 @@
  * worker-emitted events on purpose — downstream consumers don't care which
  * process wrote the row, only what happened. The Nest side emits them from
  * the reaper (worker presumed dead) and from cancel-before-pickup.
+ *
+ * Managed-database lifecycle: Nest emits the `*_queued` intent events below
+ * when it inserts a row and hands work to the worker. The worker writes the
+ * completion events (`database.provisioned`, `database.provision_failed`,
+ * `database.snapshot_ready`, `database.snapshot_failed`,
+ * `database.snapshot_restored`, ...) directly via SQL — same split as
+ * deployments, so they are deliberately absent from this file.
  */
 export const OUTBOX_EVENT_TYPES = {
   DeploymentQueued: 'deployment.queued',
   DeploymentFailed: 'deployment.failed',
   DeploymentCancelled: 'deployment.cancelled',
+
+  DatabaseProvisionQueued: 'database.provision_queued',
+  DatabaseTeardownQueued: 'database.teardown_queued',
+  SnapshotQueued: 'database.snapshot_queued',
+  SnapshotRestoreQueued: 'database.snapshot_restore_queued',
+  SnapshotDeleteQueued: 'database.snapshot_delete_queued',
 } as const;
 
 export type OutboxEventType =

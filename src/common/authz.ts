@@ -10,7 +10,14 @@ export type Action =
   | 'environments.delete'
   | 'deployments.create'
   | 'deployments.read'
-  | 'deployments.cancel';
+  | 'deployments.cancel'
+  | 'databases.create'
+  | 'databases.read'
+  | 'databases.delete'
+  | 'snapshots.create'
+  | 'snapshots.read'
+  | 'snapshots.restore'
+  | 'snapshots.delete';
 
 export interface OwnedResource {
   ownerId: string;

@@ -3,10 +3,16 @@ import { Redis } from 'ioredis';
 import { InjectRedis } from '../redis/redis.constants';
 import {
   BUILD_QUEUE_STREAM,
+  DATABASE_JOB_TYPES,
+  DATABASE_QUEUE_STREAM,
+  FIELD_DATABASE_ID,
   FIELD_DEPLOYMENT_ID,
   FIELD_ENVIRONMENT_ID,
+  FIELD_JOB_TYPE,
+  FIELD_SNAPSHOT_ID,
   TEARDOWN_QUEUE_STREAM,
   cancelChannel,
+  type DatabaseJobType,
 } from './queue.constants';
 
 @Injectable()
@@ -53,5 +59,79 @@ export class QueueService {
       `cancel ${deploymentId} delivered to ${subs} subscriber(s)`,
     );
     return subs;
+  }
+
+  enqueueDatabaseProvision(databaseId: string): Promise<string> {
+    return this.enqueueDatabaseJob(DATABASE_JOB_TYPES.Provision, databaseId);
+  }
+
+  enqueueDatabaseTeardown(databaseId: string): Promise<string> {
+    return this.enqueueDatabaseJob(DATABASE_JOB_TYPES.Teardown, databaseId);
+  }
+
+  enqueueSnapshot(databaseId: string, snapshotId: string): Promise<string> {
+    return this.enqueueDatabaseJob(
+      DATABASE_JOB_TYPES.Snapshot,
+      databaseId,
+      snapshotId,
+    );
+  }
+
+  enqueueSnapshotRestore(
+    databaseId: string,
+    snapshotId: string,
+  ): Promise<string> {
+    return this.enqueueDatabaseJob(
+      DATABASE_JOB_TYPES.Restore,
+      databaseId,
+      snapshotId,
+    );
+  }
+
+  enqueueSnapshotDelete(
+    databaseId: string,
+    snapshotId: string,
+  ): Promise<string> {
+    return this.enqueueDatabaseJob(
+      DATABASE_JOB_TYPES.SnapshotDelete,
+      databaseId,
+      snapshotId,
+    );
+  }
+
+  private async enqueueDatabaseJob(
+    type: DatabaseJobType,
+    databaseId: string,
+    snapshotId?: string,
+  ): Promise<string> {
+    const entryId = snapshotId
+      ? await this.redis.xadd(
+          DATABASE_QUEUE_STREAM,
+          '*',
+          FIELD_JOB_TYPE,
+          type,
+          FIELD_DATABASE_ID,
+          databaseId,
+          FIELD_SNAPSHOT_ID,
+          snapshotId,
+        )
+      : await this.redis.xadd(
+          DATABASE_QUEUE_STREAM,
+          '*',
+          FIELD_JOB_TYPE,
+          type,
+          FIELD_DATABASE_ID,
+          databaseId,
+        );
+
+    if (!entryId) {
+      throw new Error('XADD returned no entry ID');
+    }
+    this.logger.debug(
+      `enqueued database job ${type} db=${databaseId}` +
+        (snapshotId ? ` snap=${snapshotId}` : '') +
+        ` as ${entryId}`,
+    );
+    return entryId;
   }
 }

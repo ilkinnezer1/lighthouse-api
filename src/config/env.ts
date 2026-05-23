@@ -37,6 +37,15 @@ export const envSchema = z.object({
   // Apex used to build deploy URLs: <env>.<project>.<username>.<BASE_DOMAIN>.
   // Defaults to `localhost` so local dev needs no extra config.
   BASE_DOMAIN: z.string().min(1).default('localhost'),
+
+  // ---- object storage (MinIO) ----
+  // Snapshot blobs live in MinIO. Nest never speaks S3 itself — it only hands
+  // these creds to the worker via the queue payload. The `snapshots` bucket is
+  // auto-created by the worker on first use.
+  MINIO_ENDPOINT: z.url(),
+  MINIO_ACCESS_KEY: z.string().min(1),
+  MINIO_SECRET_KEY: z.string().min(1),
+  MINIO_BUCKET: z.string().min(1).default('snapshots'),
 });
 
 export type Env = z.infer<typeof envSchema>;

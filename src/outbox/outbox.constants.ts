@@ -11,11 +11,13 @@
  * the reaper (worker presumed dead) and from cancel-before-pickup.
  *
  * Managed-database lifecycle: Nest emits the `*_queued` intent events below
- * when it inserts a row and hands work to the worker. The worker writes the
- * completion events (`database.provisioned`, `database.provision_failed`,
- * `database.snapshot_ready`, `database.snapshot_failed`,
- * `database.snapshot_restored`, ...) directly via SQL — same split as
- * deployments, so they are deliberately absent from this file.
+ * when it inserts a row and hands work to the worker, plus
+ * `DatabaseProvisionFailed` / `SnapshotFailed` from the reaper when the worker
+ * is presumed dead — these share `type` strings with worker-emitted failures,
+ * exactly like `Deployment*` above. The worker writes the success completions
+ * (`database.provisioned`, `database.snapshot_ready`,
+ * `database.snapshot_restored`, ...) directly via SQL, so those stay out of
+ * this file.
  */
 export const OUTBOX_EVENT_TYPES = {
   DeploymentQueued: 'deployment.queued',
@@ -27,6 +29,10 @@ export const OUTBOX_EVENT_TYPES = {
   SnapshotQueued: 'database.snapshot_queued',
   SnapshotRestoreQueued: 'database.snapshot_restore_queued',
   SnapshotDeleteQueued: 'database.snapshot_delete_queued',
+
+  // Shared with worker-emitted failures; Nest writes them from the reaper.
+  DatabaseProvisionFailed: 'database.provision_failed',
+  SnapshotFailed: 'database.snapshot_failed',
 } as const;
 
 export type OutboxEventType =

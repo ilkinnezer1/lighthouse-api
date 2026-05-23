@@ -36,6 +36,23 @@ model ManagedDatabase {
   // NOT tear down the shared container.
   ownsContainer Boolean @default(true) @map("owns_container")
 
+  // Mode 5 (create-empty + migrate): worker runs project.buildConfig.dbMigrate
+  // once the container is healthy.
+  runMigrate Boolean @default(false) @map("run_migrate")
+
+  // Seed lineage for the create-from modes (7b). At most one is set, telling the
+  // worker how to seed a freshly provisioned container:
+  //   seedFromDatabaseId → mode 3 (copy):           pg_dump | pg_restore from a live DB
+  //   seedFromSnapshotId → mode 4 (restore-to-new): pg_restore from a MinIO blob
+  // SetNull so deleting the source/snapshot later just clears the pointer — the
+  // seeded DB already holds its own copy of the data.
+  seedFromDatabaseId String?           @map("seed_from_database_id") @db.Uuid
+  seedFromDatabase   ManagedDatabase?  @relation("DatabaseSeed", fields: [seedFromDatabaseId], references: [id], onDelete: SetNull)
+  seededDatabases    ManagedDatabase[] @relation("DatabaseSeed")
+
+  seedFromSnapshotId String?           @map("seed_from_snapshot_id") @db.Uuid
+  seedFromSnapshot   DatabaseSnapshot? @relation("SnapshotSeed", fields: [seedFromSnapshotId], references: [id], onDelete: SetNull)
+
   // Null until status flips to READY. Worker fills these in after the
   // container is reachable.
   host          String?
@@ -46,8 +63,9 @@ model ManagedDatabase {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  snapshots DatabaseSnapshot[]
+  snapshots DatabaseSnapshot[] @relation("DatabaseSnapshots")
 
+  @@unique([environmentId, name])
   @@index([environmentId])
   @@map("managed_databases")
 }
@@ -55,7 +73,7 @@ model ManagedDatabase {
 model DatabaseSnapshot {
   id         String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   databaseId String          @map("database_id") @db.Uuid
-  database   ManagedDatabase @relation(fields: [databaseId], references: [id], onDelete: Cascade)
+  database   ManagedDatabase @relation("DatabaseSnapshots", fields: [databaseId], references: [id], onDelete: Cascade)
 
   status       SnapshotStatus @default(PENDING)
   storageKey   String?        @map("storage_key")
@@ -63,6 +81,9 @@ model DatabaseSnapshot {
   errorSummary String?        @map("error_summary")
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  // New DBs provisioned by restoring this snapshot (mode 4).
+  seededDatabases ManagedDatabase[] @relation("SnapshotSeed")
 
   @@index([databaseId, createdAt(sort: Desc)])
   @@map("database_snapshots")

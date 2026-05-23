@@ -124,7 +124,7 @@ export class SnapshotsService {
    * the row is deleted directly. Otherwise the worker removes the blob from
    * MinIO and deletes the row — it reads storageKey from the row by id.
    */
-  async remove(snapshotId: string): Promise<void> {
+  async remove(snapshotId: string, userId: string): Promise<void> {
     const snap = await this.prisma.databaseSnapshot.findUnique({
       where: { id: snapshotId },
       select: { id: true, databaseId: true, storageKey: true },
@@ -141,7 +141,7 @@ export class SnapshotsService {
     await this.prisma.eventOutbox.create({
       data: {
         type: OUTBOX_EVENT_TYPES.SnapshotDeleteQueued,
-        userId: null,
+        userId,
         payload: { snapshotId, databaseId: snap.databaseId },
       },
     });

@@ -1,12 +1,14 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { DatabaseType, Prisma } from '@prisma/client';
 import { OUTBOX_EVENT_TYPES } from '../outbox/outbox.constants';
 import { PrismaService } from '../prisma/prisma.service';
+import { BuildConfigSchema } from '../projects/dto/build-config.schema';
 import { QueueService } from '../queue/queue.service';
 import { CreateDatabaseDto } from './dto/create-database.dto';
 
@@ -39,46 +41,84 @@ export class DatabasesService {
   ) {}
 
   create(environmentId: string, userId: string, dto: CreateDatabaseDto) {
-    return dto.mode === 'create-empty'
-      ? this.createEmpty(environmentId, userId, dto)
-      : this.attachExisting(environmentId, dto);
+    switch (dto.mode) {
+      case 'create-empty':
+        return this.createEmpty(environmentId, userId, dto);
+      case 'copy':
+        return this.copyFrom(environmentId, userId, dto);
+      case 'create-from-snapshot':
+        return this.createFromSnapshot(environmentId, userId, dto);
+      case 'attach-existing':
+        return this.attachExisting(environmentId, dto);
+    }
+  }
+
+  /** Translate the (environmentId, name) unique violation into a 409. */
+  private async withUniqueName<T>(
+    op: () => Promise<T>,
+    name: string,
+  ): Promise<T> {
+    try {
+      return await op();
+    } catch (err) {
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        throw new ConflictException(
+          `A database named "${name}" already exists in this environment`,
+        );
+      }
+      throw err;
+    }
   }
 
   /**
-   * Mode 2: insert a PROVISIONING row and hand the worker a job to spawn a
-   * dedicated container. The worker writes back host/port/connSecretEnc and
-   * flips status to READY (or FAILED).
+   * Shared path for every mode that provisions its own container (create-empty,
+   * copy, create-from-snapshot): insert a PROVISIONING row, emit the queued
+   * event, enqueue one provision job. The worker reads `seedFrom*` / `runMigrate`
+   * off the row to decide how to seed and whether to migrate, then writes back
+   * host/port/connSecretEnc and flips status to READY (or FAILED).
    */
-  private async createEmpty(
+  private async provisionNew(
     environmentId: string,
     userId: string,
-    dto: CreateDatabaseDto,
+    data: {
+      type: DatabaseType;
+      version: string;
+      name: string;
+      seedFromDatabaseId?: string;
+      seedFromSnapshotId?: string;
+      runMigrate?: boolean;
+    },
   ) {
-    const created = await this.prisma.$transaction(async (tx) => {
-      const db = await tx.managedDatabase.create({
-        data: {
-          environmentId,
-          type: dto.type!,
-          version: dto.version!,
-          name: dto.name!,
-          status: 'PROVISIONING',
-          ownsContainer: true,
-        },
-        select: PUBLIC_SELECT,
-      });
-      await tx.eventOutbox.create({
-        data: {
-          type: OUTBOX_EVENT_TYPES.DatabaseProvisionQueued,
-          userId,
-          payload: {
-            databaseId: db.id,
-            environmentId,
-            type: db.type,
-          },
-        },
-      });
-      return db;
-    });
+    const created = await this.withUniqueName(
+      () =>
+        this.prisma.$transaction(async (tx) => {
+          const db = await tx.managedDatabase.create({
+            data: {
+              environmentId,
+              status: 'PROVISIONING',
+              ownsContainer: true,
+              ...data,
+            },
+            select: PUBLIC_SELECT,
+          });
+          await tx.eventOutbox.create({
+            data: {
+              type: OUTBOX_EVENT_TYPES.DatabaseProvisionQueued,
+              userId,
+              payload: {
+                databaseId: db.id,
+                environmentId,
+                type: db.type,
+              },
+            },
+          });
+          return db;
+        }),
+      data.name,
+    );
 
     try {
       await this.queue.enqueueDatabaseProvision(created.id);
@@ -90,6 +130,108 @@ export class DatabasesService {
     }
 
     return created;
+  }
+
+  /** Mode 2 (and mode 5 when runMigrate is set): empty container. */
+  private async createEmpty(
+    environmentId: string,
+    userId: string,
+    dto: CreateDatabaseDto,
+  ) {
+    const runMigrate = dto.runMigrate ?? false;
+    if (runMigrate) {
+      await this.assertMigrateConfigured(environmentId);
+    }
+    return this.provisionNew(environmentId, userId, {
+      type: dto.type!,
+      version: dto.version!,
+      name: dto.name!,
+      runMigrate,
+    });
+  }
+
+  /**
+   * Mode 3: clone a live DB. type/version come from the source (no cross-engine
+   * copies); the worker does pg_dump | pg_restore from `seedFromDatabaseId`.
+   */
+  private async copyFrom(
+    environmentId: string,
+    userId: string,
+    dto: CreateDatabaseDto,
+  ) {
+    const source = await this.prisma.managedDatabase.findUnique({
+      where: { id: dto.sourceDatabaseId! },
+      select: { type: true, version: true, status: true },
+    });
+    if (!source) {
+      throw new NotFoundException('Source database not found');
+    }
+    if (source.type !== DatabaseType.POSTGRES) {
+      throw new BadRequestException(
+        'Copy is only supported for POSTGRES databases',
+      );
+    }
+    if (source.status !== 'READY') {
+      throw new ConflictException('Source database is not READY');
+    }
+    return this.provisionNew(environmentId, userId, {
+      type: source.type,
+      version: source.version,
+      name: dto.name!,
+      seedFromDatabaseId: dto.sourceDatabaseId!,
+    });
+  }
+
+  /**
+   * Mode 4: provision a new container and seed it from a snapshot's MinIO blob
+   * (the snapshot may belong to a DB in another environment). type/version come
+   * from the snapshot's source database.
+   */
+  private async createFromSnapshot(
+    environmentId: string,
+    userId: string,
+    dto: CreateDatabaseDto,
+  ) {
+    const snap = await this.prisma.databaseSnapshot.findUnique({
+      where: { id: dto.snapshotId! },
+      select: {
+        status: true,
+        storageKey: true,
+        database: { select: { type: true, version: true } },
+      },
+    });
+    if (!snap) {
+      throw new NotFoundException('Snapshot not found');
+    }
+    if (snap.database.type !== DatabaseType.POSTGRES) {
+      throw new BadRequestException(
+        'Restore is only supported for POSTGRES databases',
+      );
+    }
+    if (snap.status !== 'READY' || !snap.storageKey) {
+      throw new ConflictException('Snapshot is not READY');
+    }
+    return this.provisionNew(environmentId, userId, {
+      type: snap.database.type,
+      version: snap.database.version,
+      name: dto.name!,
+      seedFromSnapshotId: dto.snapshotId!,
+    });
+  }
+
+  /** Mode 5 guard: the project must actually define a migrate command. */
+  private async assertMigrateConfigured(environmentId: string): Promise<void> {
+    const env = await this.prisma.environment.findUnique({
+      where: { id: environmentId },
+      select: { project: { select: { buildConfig: true } } },
+    });
+    const parsed = BuildConfigSchema.safeParse(env?.project.buildConfig ?? {});
+    const dbMigrate = parsed.success ? parsed.data.dbMigrate : undefined;
+    if (!dbMigrate || dbMigrate.length === 0) {
+      throw new BadRequestException(
+        'runMigrate requires buildConfig.dbMigrate to be set on the project',
+      );
+    }
   }
 
   /**
@@ -117,20 +259,24 @@ export class DatabasesService {
       throw new ConflictException('Source database is not READY');
     }
 
-    return this.prisma.managedDatabase.create({
-      data: {
-        environmentId,
-        type: source.type,
-        version: source.version,
-        name: source.name,
-        status: 'READY',
-        ownsContainer: false,
-        host: source.host,
-        port: source.port,
-        connSecretEnc: source.connSecretEnc,
-      },
-      select: PUBLIC_SELECT,
-    });
+    return this.withUniqueName(
+      () =>
+        this.prisma.managedDatabase.create({
+          data: {
+            environmentId,
+            type: source.type,
+            version: source.version,
+            name: source.name,
+            status: 'READY',
+            ownsContainer: false,
+            host: source.host,
+            port: source.port,
+            connSecretEnc: source.connSecretEnc,
+          },
+          select: PUBLIC_SELECT,
+        }),
+      source.name,
+    );
   }
 
   listByEnvironment(environmentId: string) {
@@ -160,12 +306,35 @@ export class DatabasesService {
   }
 
   /**
+   * Owner chain for a snapshot (snapshot → database → environment → project),
+   * for authorizing create-from-snapshot. Lives here rather than in
+   * SnapshotsService to avoid a circular module dependency.
+   */
+  findSnapshotWithOwner(snapshotId: string) {
+    return this.prisma.databaseSnapshot.findUnique({
+      where: { id: snapshotId },
+      select: {
+        status: true,
+        database: {
+          select: {
+            environment: {
+              select: {
+                project: { select: { ownerId: true, deletedAt: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+  }
+
+  /**
    * Hard-deletes the row (cascading its snapshots). Only rows that own a
    * dedicated container enqueue a teardown job; attached rows just disappear,
    * leaving the shared container untouched. Worker also reaps the row's
    * snapshot blobs from MinIO during teardown.
    */
-  async remove(id: string): Promise<void> {
+  async remove(id: string, userId: string): Promise<void> {
     const db = await this.prisma.managedDatabase.findUnique({
       where: { id },
       select: { id: true, ownsContainer: true },
@@ -179,7 +348,7 @@ export class DatabasesService {
         await tx.eventOutbox.create({
           data: {
             type: OUTBOX_EVENT_TYPES.DatabaseTeardownQueued,
-            userId: null,
+            userId,
             payload: { databaseId: id },
           },
         });

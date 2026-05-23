@@ -45,13 +45,27 @@ export class DatabasesController {
     }
     ensureCan(user, 'databases.create', env.project);
 
-    // Reusing a connection requires owning the source DB too.
+    // Modes that seed from / reuse an existing resource also require owning it.
     if (dto.mode === 'attach-existing') {
       const source = await this.databases.findByIdWithOwner(dto.databaseId!);
       if (!source || source.environment.project.deletedAt) {
         throw new NotFoundException('Source database not found');
       }
       ensureCan(user, 'databases.create', source.environment.project);
+    } else if (dto.mode === 'copy') {
+      const source = await this.databases.findByIdWithOwner(
+        dto.sourceDatabaseId!,
+      );
+      if (!source || source.environment.project.deletedAt) {
+        throw new NotFoundException('Source database not found');
+      }
+      ensureCan(user, 'databases.read', source.environment.project);
+    } else if (dto.mode === 'create-from-snapshot') {
+      const snap = await this.databases.findSnapshotWithOwner(dto.snapshotId!);
+      if (!snap || snap.database.environment.project.deletedAt) {
+        throw new NotFoundException('Snapshot not found');
+      }
+      ensureCan(user, 'snapshots.read', snap.database.environment.project);
     }
 
     return this.databases.create(envId, user.id, dto);
@@ -104,6 +118,6 @@ export class DatabasesController {
       throw new NotFoundException();
     }
     ensureCan(user, 'databases.delete', db.environment.project);
-    await this.databases.remove(id);
+    await this.databases.remove(id, user.id);
   }
 }

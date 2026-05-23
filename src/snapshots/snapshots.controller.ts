@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Controller,
   Delete,
@@ -39,6 +40,11 @@ export class SnapshotsController {
       throw new NotFoundException('Database not found');
     }
     ensureCan(user, 'snapshots.create', db.environment.project);
+    if (db.type !== 'POSTGRES') {
+      throw new BadRequestException(
+        'Snapshots are only supported for POSTGRES databases',
+      );
+    }
     if (db.status !== 'READY') {
       throw new ConflictException('Database is not READY');
     }
@@ -91,6 +97,6 @@ export class SnapshotsController {
       throw new NotFoundException();
     }
     ensureCan(user, 'snapshots.delete', snap.database.environment.project);
-    await this.snapshots.remove(id);
+    await this.snapshots.remove(id, user.id);
   }
 }

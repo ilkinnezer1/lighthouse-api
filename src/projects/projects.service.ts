@@ -8,6 +8,7 @@ import { Prisma } from '@prisma/client';
 import type { Environment, Project } from '@prisma/client';
 import { randomBytes } from 'node:crypto';
 import { CryptoService } from '../crypto/crypto.service';
+import { GithubApiService } from '../github/github-api.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { BuildConfigSchema } from './dto/build-config.schema';
 import { parseGithubFullName } from './util/repo-url';
@@ -21,6 +22,7 @@ export class ProjectsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly crypto: CryptoService,
+    private readonly github: GithubApiService,
   ) {}
 
   async create(
@@ -33,11 +35,21 @@ export class ProjectsService {
       defaultBranch?: string;
     },
   ): Promise<ProjectWithEnvironments> {
-    const branch = data.defaultBranch || 'main';
     const webhookSecretEnc = this.crypto.encrypt(
       randomBytes(32).toString('hex'),
     );
     const providerRepoFullName = parseGithubFullName(data.repoUrl);
+
+    // Prefer an explicit branch; otherwise ask GitHub for the repo's default
+    // (e.g. master vs main) and only fall back to 'main' if that lookup fails
+    // or the repo isn't a recognizable GitHub URL.
+    let branch = data.defaultBranch;
+    if (!branch && providerRepoFullName) {
+      branch =
+        (await this.github.getDefaultBranch(ownerId, providerRepoFullName)) ??
+        undefined;
+    }
+    branch = branch || 'main';
 
     try {
       return await this.prisma.project.create({

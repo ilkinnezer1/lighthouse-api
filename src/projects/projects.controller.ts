@@ -96,6 +96,19 @@ export class ProjectsController {
     return { ...project, webhookSecret };
   }
 
+  @Get(':id/branches')
+  async branches(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentUser() user: User,
+  ) {
+    const project = await this.projects.findById(id);
+    if (!project) {
+      throw new NotFoundException();
+    }
+    ensureCan(user, 'projects.read', project);
+    return this.projects.listBranches(project);
+  }
+
   @Patch(':id')
   @Audit('projects.update')
   async update(

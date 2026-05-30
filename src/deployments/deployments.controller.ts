@@ -1,4 +1,5 @@
 import {
+  Body,
   Controller,
   Get,
   HttpCode,
@@ -16,6 +17,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ensureCan } from '../common/authz';
 import { PrismaService } from '../prisma/prisma.service';
 import { DeploymentsService } from './deployments.service';
+import { CreateDeploymentDto } from './dto/create-deployment.dto';
 
 @Controller()
 @UseGuards(JwtAuthGuard)
@@ -30,6 +32,7 @@ export class DeploymentsController {
   @Audit('deployments.create')
   async create(
     @Param('envId', new ParseUUIDPipe()) envId: string,
+    @Body() dto: CreateDeploymentDto,
     @CurrentUser() user: User,
   ) {
     const env = await this.prisma.environment.findUnique({
@@ -43,7 +46,10 @@ export class DeploymentsController {
 
     ensureCan(user, 'deployments.create', env.project);
 
-    return this.deployments.create(envId, user.id);
+    return this.deployments.create(envId, user.id, {
+      sourceBranch: dto.sourceBranch,
+      mergeBranches: dto.mergeBranches,
+    });
   }
 
   @Get('environments/:envId/deployments')

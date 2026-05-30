@@ -113,9 +113,11 @@ export class GithubWebhookService {
     }
 
     await this.deployments.create(env.id, project.ownerId, {
-      sha: payload.head_commit?.id,
-      message: payload.head_commit?.message,
-      author: payload.head_commit?.author?.name,
+      commit: {
+        sha: payload.head_commit?.id,
+        message: payload.head_commit?.message,
+        author: payload.head_commit?.author?.name,
+      },
     });
   }
 
@@ -168,7 +170,7 @@ export class GithubWebhookService {
     });
 
     const deployment = await this.deployments.create(env.id, project.ownerId, {
-      sha: headSha,
+      commit: { sha: headSha },
     });
 
     if (

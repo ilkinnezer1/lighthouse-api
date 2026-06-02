@@ -1,5 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@prisma/client';
+import type { DeploymentStatus, User } from '@prisma/client';
 import { buildDeployUrl } from '../common/url';
 import type { Env } from '../config/env';
 import { OUTBOX_EVENT_TYPES } from '../outbox/outbox.constants';
@@ -101,6 +103,63 @@ export class DeploymentsService {
     }
 
     return { ...deployment, url: this.urlFor(deployment.environment) };
+  }
+
+  async listAllForOwner(
+    user: Pick<User, 'id' | 'role'>,
+    opts: {
+      limit?: number;
+      cursor?: string;
+      status?: DeploymentStatus;
+      projectId?: string;
+    } = {},
+  ) {
+    const limit = opts.limit ?? 20;
+    const where: Prisma.DeploymentWhereInput = {
+      status: opts.status,
+      environment: {
+        project: {
+          deletedAt: null,
+          id: opts.projectId,
+          ownerId: user.role === 'ADMIN' ? undefined : user.id,
+        },
+      },
+    };
+
+    const rows = await this.prisma.deployment.findMany({
+      where,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+      ...(opts.cursor
+        ? { cursor: { id: opts.cursor }, skip: 1 }
+        : {}),
+      include: {
+        branches: { orderBy: { ordinal: 'asc' } },
+        environment: {
+          select: {
+            id: true,
+            name: true,
+            subdomain: true,
+            customDomain: true,
+            project: {
+              select: {
+                id: true,
+                name: true,
+                subdomain: true,
+                owner: { select: { username: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const hasMore = rows.length > limit;
+    const items = (hasMore ? rows.slice(0, limit) : rows).map((d) => ({
+      ...d,
+      url: this.urlFor(d.environment),
+    }));
+    return { items, nextCursor: hasMore ? items[items.length - 1].id : null };
   }
 
   async listByEnvironment(environmentId: string) {

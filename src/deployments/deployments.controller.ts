@@ -8,6 +8,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import type { User } from '@prisma/client';
@@ -18,6 +19,7 @@ import { ensureCan } from '../common/authz';
 import { PrismaService } from '../prisma/prisma.service';
 import { DeploymentsService } from './deployments.service';
 import { CreateDeploymentDto } from './dto/create-deployment.dto';
+import { ListDeploymentsDto } from './dto/list-deployments.dto';
 
 @Controller()
 @UseGuards(JwtAuthGuard)
@@ -66,6 +68,14 @@ export class DeploymentsController {
     }
     ensureCan(user, 'deployments.read', env.project);
     return this.deployments.listByEnvironment(envId);
+  }
+
+  @Get('deployments')
+  async listAll(
+    @Query() query: ListDeploymentsDto,
+    @CurrentUser() user: User,
+  ) {
+    return this.deployments.listAllForOwner(user, query);
   }
 
   @Get('deployments/:id')

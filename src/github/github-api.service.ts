@@ -3,6 +3,13 @@ import { CryptoService } from '../crypto/crypto.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 const GITHUB_API = 'https://api.github.com';
+const BRANCHES_PER_PAGE = 100;
+const MAX_BRANCH_PAGES = 10;
+
+export interface RepoBranch {
+  name: string;
+  sha: string;
+}
 
 @Injectable()
 export class GithubApiService {
@@ -94,6 +101,66 @@ export class GithubApiService {
     } catch (err) {
       this.logger.warn(
         `default-branch lookup errored for ${repoFullName}: ${String(err)}`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * List a repo's branches via the GitHub API for the branch picker. Uses the
+   * owner's PAT when one exists (required for private repos, higher rate limits
+   * otherwise) and falls back to an unauthenticated call so public repos still
+   * resolve. Paginates up to MAX_BRANCH_PAGES; returns null on any failure so
+   * callers can decide how to surface it.
+   */
+  async listBranches(
+    ownerId: string,
+    repoFullName: string,
+  ): Promise<RepoBranch[] | null> {
+    const credential = await this.prisma.gitCredential.findFirst({
+      where: { userId: ownerId, kind: 'PAT' },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const headers: Record<string, string> = {
+      Accept: 'application/vnd.github+json',
+      'User-Agent': 'lighthouse',
+      'X-GitHub-Api-Version': '2022-11-28',
+    };
+    if (credential) {
+      headers.Authorization = `Bearer ${this.crypto.decrypt(credential.secretEnc)}`;
+    }
+
+    const branches: RepoBranch[] = [];
+    try {
+      for (let page = 1; page <= MAX_BRANCH_PAGES; page++) {
+        const res = await fetch(
+          `${GITHUB_API}/repos/${repoFullName}/branches?per_page=${BRANCHES_PER_PAGE}&page=${page}`,
+          { headers },
+        );
+        if (!res.ok) {
+          this.logger.warn(
+            `branch list failed for ${repoFullName}: ${res.status} ${res.statusText}`,
+          );
+          return null;
+        }
+        const body = (await res.json()) as Array<{
+          name?: string;
+          commit?: { sha?: string };
+        }>;
+        for (const item of body) {
+          if (item.name && item.commit?.sha) {
+            branches.push({ name: item.name, sha: item.commit.sha });
+          }
+        }
+        if (body.length < BRANCHES_PER_PAGE) {
+          break;
+        }
+      }
+      return branches;
+    } catch (err) {
+      this.logger.warn(
+        `branch list errored for ${repoFullName}: ${String(err)}`,
       );
       return null;
     }

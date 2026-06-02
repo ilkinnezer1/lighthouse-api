@@ -22,6 +22,13 @@ enum DeploymentStageStatus {
   ROLLED_BACK
 }
 
+// SOURCE = the branch the worktree is created from (exactly one per deployment).
+// MERGE  = a feature branch merged into SOURCE, in `ordinal` order.
+enum DeploymentBranchRole {
+  SOURCE
+  MERGE
+}
+
 model Deployment {
   id            String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   environmentId String      @map("environment_id") @db.Uuid
@@ -52,11 +59,30 @@ model Deployment {
 
   stages   DeploymentStage[]
   services Service[]
+  branches DeploymentBranch[]
 
   @@index([environmentId, createdAt(sort: Desc)])
   // Turned into a partial index in the migration SQL.
   @@index([status])
   @@map("deployments")
+}
+
+// Immutable branch set a deployment was built from: one SOURCE + N MERGE
+// branches, each pinned to a SHA. Absent on plain deploys (worker falls back
+// to the environment's branch).
+model DeploymentBranch {
+  id           String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  deploymentId String     @map("deployment_id") @db.Uuid
+  deployment   Deployment @relation(fields: [deploymentId], references: [id], onDelete: Cascade)
+
+  role    DeploymentBranchRole
+  name    String
+  sha     String? // resolved at enqueue time
+  ordinal Int // 0 = SOURCE; 1..N = MERGE order
+
+  @@unique([deploymentId, ordinal])
+  @@index([deploymentId])
+  @@map("deployment_branches")
 }
 
 model DeploymentStage {

@@ -1,16 +1,18 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { Deployment, DeploymentStage } from '@prisma/client';
 import { buildDeployUrl } from '../common/url';
 import type { Env } from '../config/env';
 import { OUTBOX_EVENT_TYPES } from '../outbox/outbox.constants';
 import { PrismaService } from '../prisma/prisma.service';
 import { QueueService } from '../queue/queue.service';
+import { DeploymentBranchesService } from './deployment-branches.service';
 import { DEFAULT_STAGES } from './deployments.constants';
 
-export type DeploymentWithStages = Deployment & {
-  stages: DeploymentStage[];
-};
+export interface CreateDeploymentOptions {
+  commit?: { sha?: string; message?: string; author?: string };
+  sourceBranch?: string;
+  mergeBranches?: string[];
+}
 
 type EnvForUrl = {
   subdomain: string;
@@ -29,13 +31,23 @@ export class DeploymentsService {
     private readonly prisma: PrismaService,
     private readonly queue: QueueService,
     private readonly config: ConfigService<Env, true>,
+    private readonly branches: DeploymentBranchesService,
   ) {}
 
   async create(
     environmentId: string,
     triggeredByUserId: string,
-    commit?: { sha?: string; message?: string; author?: string },
+    opts: CreateDeploymentOptions = {},
   ) {
+    const { commit } = opts;
+    // Resolve the branch set (SOURCE + merges) to commit SHAs before opening
+    // the transaction — it makes a GitHub call and validates branch names.
+    const branchRows = await this.branches.resolve(
+      environmentId,
+      opts.sourceBranch,
+      opts.mergeBranches,
+    );
+
     const deployment = await this.prisma.$transaction(async (tx) => {
       const created = await tx.deployment.create({
         data: {
@@ -50,9 +62,11 @@ export class DeploymentsService {
               ordinal: index + 1,
             })),
           },
+          branches: branchRows.length ? { create: branchRows } : undefined,
         },
         include: {
           stages: { orderBy: { ordinal: 'asc' } },
+          branches: { orderBy: { ordinal: 'asc' } },
           environment: {
             include: {
               project: {
@@ -119,6 +133,7 @@ export class DeploymentsService {
       where: { id },
       include: {
         stages: { orderBy: { ordinal: 'asc' } },
+        branches: { orderBy: { ordinal: 'asc' } },
         services: true,
         environment: {
           include: {

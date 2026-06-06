@@ -5,7 +5,8 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { DatabaseType, Prisma } from '@prisma/client';
+import { DatabaseStatus, DatabaseType, Prisma } from '@prisma/client';
+import type { User } from '@prisma/client';
 import { OUTBOX_EVENT_TYPES } from '../outbox/outbox.constants';
 import { PrismaService } from '../prisma/prisma.service';
 import { BuildConfigSchema } from '../projects/dto/build-config.schema';
@@ -285,6 +286,58 @@ export class DatabasesService {
       orderBy: { createdAt: 'desc' },
       select: PUBLIC_SELECT,
     });
+  }
+
+  async listAllForOwner(
+    user: Pick<User, 'id' | 'role'>,
+    opts: {
+      limit?: number;
+      cursor?: string;
+      status?: DatabaseStatus;
+      type?: DatabaseType;
+      projectId?: string;
+    } = {},
+  ) {
+    const limit = opts.limit ?? 20;
+    const where: Prisma.ManagedDatabaseWhereInput = {
+      status: opts.status,
+      type: opts.type,
+      environment: {
+        project: {
+          deletedAt: null,
+          id: opts.projectId,
+          ownerId: user.role === 'ADMIN' ? undefined : user.id,
+        },
+      },
+    };
+
+    const rows = await this.prisma.managedDatabase.findMany({
+      where,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+      ...(opts.cursor ? { cursor: { id: opts.cursor }, skip: 1 } : {}),
+      select: {
+        ...PUBLIC_SELECT,
+        environment: {
+          select: {
+            id: true,
+            name: true,
+            project: {
+              select: {
+                id: true,
+                name: true,
+                subdomain: true,
+                owner: { select: { username: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const hasMore = rows.length > limit;
+    const items = hasMore ? rows.slice(0, limit) : rows;
+    return { items, nextCursor: hasMore ? items[items.length - 1].id : null };
   }
 
   /**

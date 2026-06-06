@@ -12,6 +12,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import type { User } from '@prisma/client';
@@ -99,6 +100,8 @@ export class ProjectsController {
   @Get(':id/branches')
   async branches(
     @Param('id', new ParseUUIDPipe()) id: string,
+    @Query('base') base: string | undefined,
+    @Query('refresh') refresh: string | undefined,
     @CurrentUser() user: User,
   ) {
     const project = await this.projects.findById(id);
@@ -106,7 +109,11 @@ export class ProjectsController {
       throw new NotFoundException();
     }
     ensureCan(user, 'projects.read', project);
-    return this.projects.listBranches(project);
+    return this.projects.listBranches(
+      project,
+      base?.trim() || undefined,
+      refresh === '1' || refresh === 'true',
+    );
   }
 
   @Patch(':id')

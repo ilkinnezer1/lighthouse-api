@@ -9,7 +9,11 @@ import { Prisma } from '@prisma/client';
 import type { Environment, Project } from '@prisma/client';
 import { randomBytes } from 'node:crypto';
 import { CryptoService } from '../crypto/crypto.service';
-import { GithubApiService, RepoBranch } from '../github/github-api.service';
+import {
+  GithubApiService,
+  RepoBranch,
+  RepoBranchWithMeta,
+} from '../github/github-api.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { BuildConfigSchema } from './dto/build-config.schema';
 import { parseGithubFullName } from './util/repo-url';
@@ -106,17 +110,29 @@ export class ProjectsService {
    * List the project repo's branches for the branch picker. Requires the
    * project to be linked to a recognizable GitHub repo; surfaces an upstream
    * failure as 502 so the caller can distinguish it from a missing repo (400).
+   * When `base` is given, each branch also carries its delta relative to it.
    */
-  async listBranches(project: Project): Promise<RepoBranch[]> {
+  async listBranches(
+    project: Project,
+    base?: string,
+    refresh = false,
+  ): Promise<RepoBranch[] | RepoBranchWithMeta[]> {
     if (!project.providerRepoFullName) {
       throw new BadRequestException(
         'Project is not linked to a GitHub repository',
       );
     }
-    const branches = await this.github.listBranches(
-      project.ownerId,
-      project.providerRepoFullName,
-    );
+    const branches = base
+      ? await this.github.listBranchesWithDeltas(
+          project.ownerId,
+          project.providerRepoFullName,
+          base,
+          refresh,
+        )
+      : await this.github.listBranches(
+          project.ownerId,
+          project.providerRepoFullName,
+        );
     if (branches === null) {
       throw new BadGatewayException('Could not fetch branches from GitHub');
     }

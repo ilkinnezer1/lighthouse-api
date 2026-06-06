@@ -9,6 +9,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import type { User } from '@prisma/client';
@@ -19,6 +20,7 @@ import { ensureCan } from '../common/authz';
 import { PrismaService } from '../prisma/prisma.service';
 import { DatabasesService } from './databases.service';
 import { CreateDatabaseDto } from './dto/create-database.dto';
+import { ListDatabasesDto } from './dto/list-databases.dto';
 
 @Controller()
 @UseGuards(JwtAuthGuard)
@@ -85,6 +87,11 @@ export class DatabasesController {
     }
     ensureCan(user, 'databases.read', env.project);
     return this.databases.listByEnvironment(envId);
+  }
+
+  @Get('databases')
+  async listAll(@Query() query: ListDatabasesDto, @CurrentUser() user: User) {
+    return this.databases.listAllForOwner(user, query);
   }
 
   @Get('databases/:id')

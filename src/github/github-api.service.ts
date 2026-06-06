@@ -7,6 +7,9 @@ const BRANCHES_PER_PAGE = 100;
 const MAX_BRANCH_PAGES = 10;
 const COMPARE_CONCURRENCY = 8;
 const COMPARE_CACHE_TTL_MS = 5 * 60 * 1000;
+// Sweep expired entries once the cache grows past this; sha-keyed entries are
+// orphaned by every push, so without a bound the map grows without limit.
+const COMPARE_CACHE_MAX = 1000;
 
 export interface RepoBranch {
   name: string;
@@ -210,6 +213,19 @@ export class GithubApiService {
     return out;
   }
 
+  /** Cache a delta, sweeping expired entries when the map grows past its cap. */
+  private cacheCompare(key: string, meta: BranchMeta): void {
+    const now = Date.now();
+    if (this.compareCache.size >= COMPARE_CACHE_MAX) {
+      for (const [k, v] of this.compareCache) {
+        if (now - v.at >= COMPARE_CACHE_TTL_MS) {
+          this.compareCache.delete(k);
+        }
+      }
+    }
+    this.compareCache.set(key, { at: now, meta });
+  }
+
   /**
    * Resolve one branch's ahead/behind + last-commit date relative to `base` via
    * the GitHub compare API. Cached per repo+base+head-sha; nulls on failure.
@@ -255,16 +271,13 @@ export class GithubApiService {
         commits?: Array<{ commit?: { committer?: { date?: string } } }>;
         merge_base_commit?: { commit?: { committer?: { date?: string } } };
       };
-      const headCommit =
-        body.commits && body.commits.length > 0
-          ? body.commits[body.commits.length - 1]
-          : body.merge_base_commit;
+      const headCommit = body.commits?.at(-1) ?? body.merge_base_commit;
       const meta: BranchMeta = {
         aheadBy: body.ahead_by ?? null,
         behindBy: body.behind_by ?? null,
         lastCommitDate: headCommit?.commit?.committer?.date ?? null,
       };
-      this.compareCache.set(cacheKey, { at: Date.now(), meta });
+      this.cacheCompare(cacheKey, meta);
       return meta;
     } catch (err) {
       this.logger.warn(

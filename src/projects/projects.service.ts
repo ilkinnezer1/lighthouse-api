@@ -115,6 +115,7 @@ export class ProjectsService {
   async listBranches(
     project: Project,
     base?: string,
+    refresh = false,
   ): Promise<RepoBranch[] | RepoBranchWithMeta[]> {
     if (!project.providerRepoFullName) {
       throw new BadRequestException(
@@ -126,6 +127,7 @@ export class ProjectsService {
           project.ownerId,
           project.providerRepoFullName,
           base,
+          refresh,
         )
       : await this.github.listBranches(
           project.ownerId,

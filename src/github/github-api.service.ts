@@ -191,6 +191,7 @@ export class GithubApiService {
     ownerId: string,
     repoFullName: string,
     base: string,
+    refresh = false,
   ): Promise<RepoBranchWithMeta[] | null> {
     const branches = await this.listBranches(ownerId, repoFullName);
     if (branches === null) {
@@ -202,7 +203,7 @@ export class GithubApiService {
     for (let i = 0; i < branches.length; i += COMPARE_CONCURRENCY) {
       const batch = branches.slice(i, i + COMPARE_CONCURRENCY);
       const metas = await Promise.all(
-        batch.map((b) => this.branchMeta(repoFullName, base, b, headers)),
+        batch.map((b) => this.branchMeta(repoFullName, base, b, headers, refresh)),
       );
       batch.forEach((b, j) => out.push({ ...b, ...metas[j] }));
     }
@@ -212,17 +213,22 @@ export class GithubApiService {
   /**
    * Resolve one branch's ahead/behind + last-commit date relative to `base` via
    * the GitHub compare API. Cached per repo+base+head-sha; nulls on failure.
+   * `refresh` skips the cache read (so a Fetch picks up a moved base), still
+   * writing the recomputed result back.
    */
   private async branchMeta(
     repoFullName: string,
     base: string,
     branch: RepoBranch,
     headers: Record<string, string>,
+    refresh = false,
   ): Promise<BranchMeta> {
     const cacheKey = `${repoFullName}::${base}::${branch.sha}`;
-    const cached = this.compareCache.get(cacheKey);
-    if (cached && Date.now() - cached.at < COMPARE_CACHE_TTL_MS) {
-      return cached.meta;
+    if (!refresh) {
+      const cached = this.compareCache.get(cacheKey);
+      if (cached && Date.now() - cached.at < COMPARE_CACHE_TTL_MS) {
+        return cached.meta;
+      }
     }
 
     const empty: BranchMeta = {

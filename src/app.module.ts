@@ -18,6 +18,7 @@ import { ReaperModule } from './reaper/reaper.module';
 import { RedisModule } from './redis/redis.module';
 import { QueueModule } from './queue/queue.module';
 import { DatabasesModule } from './databases/databases.module';
+import { EnvVarsModule } from './env-vars/env-vars.module';
 import { SnapshotsModule } from './snapshots/snapshots.module';
 import { DeploymentsModule } from './deployments/deployments.module';
 import { OutboxModule } from './outbox/outbox.module';
@@ -43,6 +44,7 @@ import { WsModule } from './ws/ws.module';
     BootstrapModule,
     QueueModule,
     DatabasesModule,
+    EnvVarsModule,
     SnapshotsModule,
     DeploymentsModule,
     OutboxModule,

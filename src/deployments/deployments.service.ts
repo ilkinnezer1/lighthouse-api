@@ -1,4 +1,10 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import type { DeploymentStatus, User } from '@prisma/client';
@@ -7,7 +13,10 @@ import type { Env } from '../config/env';
 import { OUTBOX_EVENT_TYPES } from '../outbox/outbox.constants';
 import { PrismaService } from '../prisma/prisma.service';
 import { QueueService } from '../queue/queue.service';
-import { DeploymentBranchesService } from './deployment-branches.service';
+import {
+  DeploymentBranchesService,
+  type BranchRow,
+} from './deployment-branches.service';
 import { DEFAULT_STAGES } from './deployments.constants';
 
 export interface CreateDeploymentOptions {
@@ -41,7 +50,6 @@ export class DeploymentsService {
     triggeredByUserId: string,
     opts: CreateDeploymentOptions = {},
   ) {
-    const { commit } = opts;
     // Resolve the branch set (SOURCE + merges) to commit SHAs before opening
     // the transaction — it makes a GitHub call and validates branch names.
     const branchRows = await this.branches.resolve(
@@ -49,7 +57,99 @@ export class DeploymentsService {
       opts.sourceBranch,
       opts.mergeBranches,
     );
+    return this.enqueue(
+      environmentId,
+      triggeredByUserId,
+      branchRows,
+      opts.commit,
+    );
+  }
 
+  // Re-runs an existing deployment's branch set at the branches' CURRENT tips
+  // (re-resolves names → fresh SHAs). Plain deploys (no branch rows) redeploy
+  // the environment's branch tip.
+  async redeploy(deploymentId: string, triggeredByUserId: string) {
+    const src = await this.prisma.deployment.findUnique({
+      where: { id: deploymentId },
+      include: {
+        branches: { orderBy: { ordinal: 'asc' } },
+        environment: { select: { project: { select: { deletedAt: true } } } },
+      },
+    });
+    if (!src || src.environment.project.deletedAt) {
+      throw new NotFoundException();
+    }
+    const sourceBranch = src.branches.find((b) => b.role === 'SOURCE')?.name;
+    const mergeBranches = src.branches
+      .filter((b) => b.role === 'MERGE')
+      .map((b) => b.name);
+    return this.create(src.environmentId, triggeredByUserId, {
+      sourceBranch,
+      mergeBranches,
+    });
+  }
+
+  // Reproduces a previous SUCCEEDED build by re-enqueueing its branch set pinned
+  // to the SAME SHAs (worker's fetchRef pins on sha). Plain deploys pin a single
+  // SOURCE row to the recorded commit SHA so the old code is rebuilt exactly.
+  async rollback(deploymentId: string, triggeredByUserId: string) {
+    const src = await this.prisma.deployment.findUnique({
+      where: { id: deploymentId },
+      include: {
+        branches: { orderBy: { ordinal: 'asc' } },
+        environment: {
+          select: {
+            branch: true,
+            project: { select: { deletedAt: true } },
+          },
+        },
+      },
+    });
+    if (!src || src.environment.project.deletedAt) {
+      throw new NotFoundException();
+    }
+    if (src.status !== 'SUCCEEDED') {
+      throw new ConflictException(
+        'Can only roll back to a succeeded deployment',
+      );
+    }
+
+    const branchRows: BranchRow[] = src.branches.length
+      ? src.branches.map((b) => ({
+          role: b.role,
+          name: b.name,
+          sha: b.sha,
+          ordinal: b.ordinal,
+        }))
+      : this.pinnedSourceRow(src.environment.branch, src.commitSha);
+
+    return this.enqueue(src.environmentId, triggeredByUserId, branchRows, {
+      sha: src.commitSha ?? undefined,
+      message: src.commitMessage ?? undefined,
+      author: src.commitAuthor ?? undefined,
+    });
+  }
+
+  // A single SHA-pinned SOURCE row, used to roll back a plain deploy to the
+  // exact commit it built. Throws if the deploy has no recorded commit to pin.
+  private pinnedSourceRow(
+    branch: string | null,
+    sha: string | null,
+  ): BranchRow[] {
+    if (!branch || !sha) {
+      throw new BadRequestException(
+        'Deployment has no pinned commit to roll back to',
+      );
+    }
+    return [{ role: 'SOURCE', name: branch, sha, ordinal: 0 }];
+  }
+
+  private async enqueue(
+    environmentId: string,
+    triggeredByUserId: string,
+    branchRows: BranchRow[],
+    commit?: CreateDeploymentOptions['commit'],
+  ) {
     const deployment = await this.prisma.$transaction(async (tx) => {
       const created = await tx.deployment.create({
         data: {
@@ -130,9 +230,7 @@ export class DeploymentsService {
       where,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: limit + 1,
-      ...(opts.cursor
-        ? { cursor: { id: opts.cursor }, skip: 1 }
-        : {}),
+      ...(opts.cursor ? { cursor: { id: opts.cursor }, skip: 1 } : {}),
       include: {
         branches: { orderBy: { ordinal: 'asc' } },
         environment: {

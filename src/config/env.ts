@@ -46,6 +46,12 @@ export const envSchema = z.object({
   MINIO_ACCESS_KEY: z.string().min(1),
   MINIO_SECRET_KEY: z.string().min(1),
   MINIO_BUCKET: z.string().min(1).default('snapshots'),
+
+  // ---- worker HTTP ----
+  // Base URL of the worker's HTTP server (`HTTP_ADDR`, default :8081). Nest
+  // proxies runtime container logs from `GET /deployments/:id/logs`; all other
+  // worker comms stay on the Redis queues.
+  WORKER_HTTP_URL: z.url().default('http://localhost:8081'),
 });
 
 export type Env = z.infer<typeof envSchema>;

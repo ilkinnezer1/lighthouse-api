@@ -12,6 +12,7 @@ export type Action =
   | 'deployments.read'
   | 'deployments.update'
   | 'deployments.cancel'
+  | 'deployments.exec'
   | 'databases.create'
   | 'databases.read'
   | 'databases.delete'

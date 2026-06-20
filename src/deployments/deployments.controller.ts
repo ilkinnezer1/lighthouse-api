@@ -24,9 +24,17 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ensureCan } from '../common/authz';
 import type { Env } from '../config/env';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  MaintenanceActionsSchema,
+  type MaintenanceAction,
+} from '../projects/dto/build-config.schema';
 import { DeploymentsService } from './deployments.service';
 import { CreateDeploymentDto } from './dto/create-deployment.dto';
 import { ListDeploymentsDto } from './dto/list-deployments.dto';
+
+type DeploymentDetail = NonNullable<
+  Awaited<ReturnType<DeploymentsService['findById']>>
+>;
 
 @Controller()
 @UseGuards(JwtAuthGuard)
@@ -175,6 +183,108 @@ export class DeploymentsController {
     }
   }
 
+  // Lists the curated maintenance actions available for this deployment — the
+  // project's allowlist, filtered to actions whose target service has a live
+  // container. The `command` is never exposed; the client triggers by id only.
+  @Get('deployments/:id/actions')
+  async listActions(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentUser() user: User,
+  ): Promise<{ actions: PublicMaintenanceAction[] }> {
+    const dep = await this.deployments.findById(id);
+    if (!dep || dep.environment.project.deletedAt) {
+      throw new NotFoundException();
+    }
+    ensureCan(user, 'deployments.exec', dep.environment.project);
+
+    const actions = maintenanceActionsFor(dep)
+      .filter((a) => hasContainer(dep, a.service))
+      .map(
+        (a): PublicMaintenanceAction => ({
+          id: a.id,
+          label: a.label,
+          service: a.service,
+          destructive: a.destructive ?? false,
+        }),
+      );
+    return { actions };
+  }
+
+  // Runs a curated maintenance command in the target service's container and
+  // streams its merged stdout/stderr (then a `\x1e{"exitCode":N}` frame) straight
+  // through from the worker — same streaming path as runtime-logs. The client
+  // sends only an action id; the API resolves the command from the allowlist.
+  @Post('deployments/:id/actions/:actionId')
+  @Audit('deployments.action')
+  async runAction(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('actionId') actionId: string,
+    @CurrentUser() user: User,
+    @Req() req: Request,
+    @Res() res: Response,
+  ): Promise<void> {
+    const dep = await this.deployments.findById(id);
+    if (!dep || dep.environment.project.deletedAt) {
+      throw new NotFoundException();
+    }
+    ensureCan(user, 'deployments.exec', dep.environment.project);
+
+    const action = maintenanceActionsFor(dep).find((a) => a.id === actionId);
+    if (!action) {
+      throw new BadRequestException(`Unknown action: ${actionId}`);
+    }
+    const target = dep.services.find((s) => s.name === action.service);
+    if (!target?.containerId) {
+      throw new NotFoundException('No running container for this action');
+    }
+
+    const ac = new AbortController();
+    req.on('close', () => ac.abort());
+
+    const workerUrl = this.config.get('WORKER_HTTP_URL', { infer: true });
+    const upstreamUrl = `${workerUrl}/deployments/${id}/services/${encodeURIComponent(action.service)}/run`;
+
+    let upstream: globalThis.Response;
+    try {
+      upstream = await fetch(upstreamUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command: action.command }),
+        signal: ac.signal,
+      });
+    } catch {
+      throw new BadGatewayException('Worker unreachable');
+    }
+    if (upstream.status === 404) {
+      throw new NotFoundException('No running container for this action');
+    }
+    if (!upstream.ok || !upstream.body) {
+      throw new BadGatewayException('Maintenance command failed');
+    }
+
+    res.status(HttpStatus.OK);
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+
+    const reader = upstream.body.getReader();
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!res.write(Buffer.from(value))) {
+          await new Promise<void>((resolve) => res.once('drain', resolve));
+        }
+      }
+    } catch {
+      // Client disconnect / upstream abort — nothing actionable.
+    } finally {
+      res.end();
+    }
+  }
+
   @Post('deployments/:id/cancel')
   @HttpCode(HttpStatus.ACCEPTED)
   @Audit('deployments.cancel')
@@ -298,3 +408,25 @@ export class DeploymentsController {
 
 // Container lifecycle actions the worker accepts; validated before proxying.
 const SERVICE_ACTIONS = new Set(['stop', 'start', 'restart']);
+
+// What the client receives for a maintenance action — never the command.
+interface PublicMaintenanceAction {
+  id: string;
+  label: string;
+  service: string;
+  destructive: boolean;
+}
+
+// Reads the project's curated maintenance action allowlist. Validates the
+// actions array on its own so a stale/extra buildConfig field can't hide it.
+function maintenanceActionsFor(dep: DeploymentDetail): MaintenanceAction[] {
+  const raw = (dep.environment.project.buildConfig as {
+    maintenanceActions?: unknown;
+  } | null)?.maintenanceActions;
+  const parsed = MaintenanceActionsSchema.safeParse(raw);
+  return parsed.success ? parsed.data : [];
+}
+
+function hasContainer(dep: DeploymentDetail, service: string): boolean {
+  return !!dep.services.find((s) => s.name === service)?.containerId;
+}

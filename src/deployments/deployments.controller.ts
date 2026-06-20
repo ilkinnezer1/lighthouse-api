@@ -404,10 +404,114 @@ export class DeploymentsController {
     }
     ensureCan(user, 'deployments.update', dep.environment.project);
   }
+
+  // Instantaneous CPU/memory readout for one running service, proxied verbatim
+  // from the worker as plain JSON (not a stream). Read-only and polled at high
+  // frequency by the web (~every 4s), so it is gated on `deployments.read` and
+  // deliberately NOT audited.
+  @Get('deployments/:id/services/:name/stats')
+  async serviceStats(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('name') name: string,
+    @CurrentUser() user: User,
+  ): Promise<ServiceStats> {
+    const dep = await this.deployments.findById(id);
+    if (!dep || dep.environment.project.deletedAt) {
+      throw new NotFoundException();
+    }
+    ensureCan(user, 'deployments.read', dep.environment.project);
+
+    const target = name
+      ? dep.services.find((s) => s.name === name)
+      : dep.services.find((s) => s.isWeb);
+    if (!target?.containerId) {
+      throw new NotFoundException('No running container for this service');
+    }
+
+    const workerUrl = this.config.get('WORKER_HTTP_URL', { infer: true });
+    const url = `${workerUrl}/deployments/${id}/services/${encodeURIComponent(name)}/stats`;
+
+    let resp: globalThis.Response;
+    try {
+      resp = await fetch(url);
+    } catch {
+      throw new BadGatewayException('Worker unreachable');
+    }
+    if (resp.status === 404) {
+      throw new NotFoundException('No container for this service');
+    }
+    if (!resp.ok) {
+      throw new BadGatewayException('Service stats failed');
+    }
+    return (await resp.json()) as ServiceStats;
+  }
+
+  // Health/lifecycle snapshot for one service, proxied verbatim from the worker
+  // as plain JSON (not a stream). Read-only and polled by the web, so it is gated
+  // on `deployments.read` and deliberately NOT audited. We 404 locally only when
+  // the service never had a container; a stopped container still has a
+  // containerId and must reach the worker, which reports its stopped state.
+  @Get('deployments/:id/services/:name/health')
+  async serviceHealth(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('name') name: string,
+    @CurrentUser() user: User,
+  ): Promise<ServiceHealth> {
+    const dep = await this.deployments.findById(id);
+    if (!dep || dep.environment.project.deletedAt) {
+      throw new NotFoundException();
+    }
+    ensureCan(user, 'deployments.read', dep.environment.project);
+
+    const target = name
+      ? dep.services.find((s) => s.name === name)
+      : dep.services.find((s) => s.isWeb);
+    if (!target?.containerId) {
+      throw new NotFoundException('No container for this service');
+    }
+
+    const workerUrl = this.config.get('WORKER_HTTP_URL', { infer: true });
+    const url = `${workerUrl}/deployments/${id}/services/${encodeURIComponent(name)}/health`;
+
+    let resp: globalThis.Response;
+    try {
+      resp = await fetch(url);
+    } catch {
+      throw new BadGatewayException('Worker unreachable');
+    }
+    if (resp.status === 404) {
+      throw new NotFoundException('No container for this service');
+    }
+    if (!resp.ok) {
+      throw new BadGatewayException('Service health failed');
+    }
+    return (await resp.json()) as ServiceHealth;
+  }
 }
 
 // Container lifecycle actions the worker accepts; validated before proxying.
 const SERVICE_ACTIONS = new Set(['stop', 'start', 'restart']);
+
+// Worker stats payload, mirrored byte-for-byte by the web client.
+interface ServiceStats {
+  service: string;
+  cpuPct: number;
+  memUsedBytes: number;
+  memLimitBytes: number;
+  netRxBytes: number;
+  netTxBytes: number;
+  blkReadBytes: number;
+  blkWriteBytes: number;
+}
+
+// Worker health payload, mirrored byte-for-byte by the web client.
+interface ServiceHealth {
+  service: string;
+  state: string;
+  health: string;
+  restartCount: number;
+  exitCode: number;
+}
 
 // What the client receives for a maintenance action — never the command.
 interface PublicMaintenanceAction {

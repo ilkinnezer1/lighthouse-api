@@ -91,9 +91,16 @@ export class ProjectsController {
     }
     ensureCan(user, 'projects.read', project);
 
-    const webhookSecret = project.webhookSecretEnc
-      ? this.crypto.decrypt(project.webhookSecretEnc)
-      : null;
+    // tolerate an undecryptable secret (e.g. encrypted under a rotated key) so
+    // the detail page loads instead of 500-ing
+    let webhookSecret: string | null = null;
+    if (project.webhookSecretEnc) {
+      try {
+        webhookSecret = this.crypto.decrypt(project.webhookSecretEnc);
+      } catch {
+        webhookSecret = null;
+      }
+    }
     return { ...project, webhookSecret };
   }
 

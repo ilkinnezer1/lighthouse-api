@@ -1,5 +1,6 @@
 export const DEFAULT_STAGES = [
   'clone',
+  'apply_files',
   'build',
   'provision_network',
   'provision_database',

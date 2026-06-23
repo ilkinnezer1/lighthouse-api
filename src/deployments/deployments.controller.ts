@@ -31,6 +31,7 @@ import {
 import { DeploymentsService } from './deployments.service';
 import { CreateDeploymentDto } from './dto/create-deployment.dto';
 import { ListDeploymentsDto } from './dto/list-deployments.dto';
+import { FRAMEWORK_PRESETS } from './maintenance-presets';
 
 type DeploymentDetail = NonNullable<
   Awaited<ReturnType<DeploymentsService['findById']>>
@@ -521,14 +522,26 @@ interface PublicMaintenanceAction {
   destructive: boolean;
 }
 
-// Reads the project's curated maintenance action allowlist. Validates the
-// actions array on its own so a stale/extra buildConfig field can't hide it.
+// Resolves the maintenance action allowlist for a deployment: the built-in
+// presets for its detected framework, merged with the project's hand-written
+// actions by id (a project action overrides the preset of the same id; project-
+// only ids are appended). Unknown/NULL framework contributes no presets. The
+// project actions are validated on their own so a stale/extra buildConfig field
+// can't hide the catalog.
 function maintenanceActionsFor(dep: DeploymentDetail): MaintenanceAction[] {
+  const presets = FRAMEWORK_PRESETS[dep.framework ?? ''] ?? [];
+
   const raw = (dep.environment.project.buildConfig as {
     maintenanceActions?: unknown;
   } | null)?.maintenanceActions;
   const parsed = MaintenanceActionsSchema.safeParse(raw);
-  return parsed.success ? parsed.data : [];
+  const custom = parsed.success ? parsed.data : [];
+
+  const byId = new Map<string, MaintenanceAction>();
+  for (const action of [...presets, ...custom]) {
+    byId.set(action.id, action);
+  }
+  return [...byId.values()];
 }
 
 function hasContainer(dep: DeploymentDetail, service: string): boolean {

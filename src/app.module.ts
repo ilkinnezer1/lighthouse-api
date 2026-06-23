@@ -19,6 +19,7 @@ import { RedisModule } from './redis/redis.module';
 import { QueueModule } from './queue/queue.module';
 import { DatabasesModule } from './databases/databases.module';
 import { EnvVarsModule } from './env-vars/env-vars.module';
+import { ManagedFilesModule } from './managed-files/managed-files.module';
 import { SnapshotsModule } from './snapshots/snapshots.module';
 import { DeploymentsModule } from './deployments/deployments.module';
 import { OutboxModule } from './outbox/outbox.module';
@@ -45,6 +46,7 @@ import { WsModule } from './ws/ws.module';
     QueueModule,
     DatabasesModule,
     EnvVarsModule,
+    ManagedFilesModule,
     SnapshotsModule,
     DeploymentsModule,
     OutboxModule,

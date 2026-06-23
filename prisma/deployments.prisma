@@ -44,6 +44,10 @@ model Deployment {
   commitMessage String? @map("commit_message")
   commitAuthor  String? @map("commit_author")
 
+  // Detected by the worker during deploy (lowercase: laravel, symfony,
+  // node-prisma, rails, django) or NULL. Keys the built-in maintenance presets.
+  framework String? @map("framework")
+
   startedAt         DateTime? @map("started_at") @db.Timestamptz(3)
   finishedAt        DateTime? @map("finished_at") @db.Timestamptz(3)
   // Worker bumps this every 30s while running; reaper marks deployments

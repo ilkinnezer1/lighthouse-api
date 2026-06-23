@@ -17,6 +17,25 @@ export type MaintenanceAction = z.infer<typeof MaintenanceActionSchema>;
 // depend on the rest of buildConfig passing strict validation.
 export const MaintenanceActionsSchema = z.array(MaintenanceActionSchema);
 
+const composePathSchema = z
+  .string()
+  .min(1)
+  .refine((p) => !p.startsWith('/'), 'composePath must be relative')
+  .refine(
+    (p) => !p.split('/').includes('..'),
+    'composePath must not contain a ".." segment',
+  );
+
+export const SetupStepSchema = z
+  .object({
+    command: z.string().min(1),
+    image: z.string().min(1).optional(),
+    docker: z.boolean().optional(),
+  })
+  .strict();
+
+export type SetupStep = z.infer<typeof SetupStepSchema>;
+
 export const BuildConfigSchema = z
   .object({
     strategy: z.enum(['dockerfile', 'compose', 'sandbox-yml']).optional(),
@@ -27,6 +46,8 @@ export const BuildConfigSchema = z
     // once it's healthy (e.g. ["npx", "prisma", "migrate", "deploy"]).
     dbMigrate: z.array(z.string().min(1)).min(1).optional(),
     maintenanceActions: MaintenanceActionsSchema.optional(),
+    composePath: composePathSchema.optional(),
+    setupSteps: z.array(SetupStepSchema).optional(),
   })
   .strict();
 

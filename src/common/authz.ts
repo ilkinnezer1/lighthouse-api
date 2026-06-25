@@ -20,6 +20,9 @@ export type Action =
   | 'snapshots.read'
   | 'snapshots.restore'
   | 'snapshots.delete'
+  | 'integrations.read'
+  | 'integrations.connect'
+  | 'integrations.disconnect'
   | 'audit.read';
 
 export interface OwnedResource {

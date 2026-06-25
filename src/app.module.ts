@@ -12,6 +12,7 @@ import { validateEnv } from './config/env';
 import { CryptoModule } from './crypto/crypto.module';
 import { GithubModule } from './github/github.module';
 import { HealthModule } from './health/health.module';
+import { IntegrationsModule } from './integrations/integrations.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ProjectsModule } from './projects/projects.module';
 import { ReaperModule } from './reaper/reaper.module';
@@ -51,6 +52,7 @@ import { WsModule } from './ws/ws.module';
     DeploymentsModule,
     OutboxModule,
     GithubModule,
+    IntegrationsModule,
     WebhooksModule,
     WsModule,
     HealthModule,

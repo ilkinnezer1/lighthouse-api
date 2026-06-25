@@ -19,7 +19,8 @@ export type Action =
   | 'snapshots.create'
   | 'snapshots.read'
   | 'snapshots.restore'
-  | 'snapshots.delete';
+  | 'snapshots.delete'
+  | 'audit.read';
 
 export interface OwnedResource {
   ownerId: string;

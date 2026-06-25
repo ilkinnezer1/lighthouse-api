@@ -52,6 +52,19 @@ export const envSchema = z.object({
   // proxies runtime container logs from `GET /deployments/:id/logs`; all other
   // worker comms stay on the Redis queues.
   WORKER_HTTP_URL: z.url().default('http://localhost:8081'),
+
+  // ---- public URLs ----
+  // Public origin of this API (used to build the GitHub OAuth callback
+  // `${PUBLIC_API_URL}/integrations/github/callback`) and of the SPA (the
+  // post-callback redirect target). Localhost defaults so dev needs no config.
+  PUBLIC_API_URL: z.url().default('http://localhost:3000'),
+  PUBLIC_APP_URL: z.url().default('http://localhost:5173'),
+
+  // ---- github oauth (integrations) ----
+  // Credentials of a GitHub OAuth App. Absent → the GitHub integration reports
+  // "not configured" and the connect endpoint 503s (never crashes the app).
+  GITHUB_OAUTH_CLIENT_ID: z.string().min(1).optional(),
+  GITHUB_OAUTH_CLIENT_SECRET: z.string().min(1).optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

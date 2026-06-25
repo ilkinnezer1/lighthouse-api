@@ -1,12 +1,19 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  HttpException,
+  HttpStatus,
+  Injectable,
+  Logger,
+} from '@nestjs/common';
 import { CryptoService } from '../crypto/crypto.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 const GITHUB_API = 'https://api.github.com';
 const BRANCHES_PER_PAGE = 100;
 const MAX_BRANCH_PAGES = 10;
+const REPOS_PER_PAGE = 30;
 const COMPARE_CONCURRENCY = 8;
 const COMPARE_CACHE_TTL_MS = 5 * 60 * 1000;
+const LOGIN_CACHE_TTL_MS = 5 * 60 * 1000;
 // Sweep expired entries once the cache grows past this; sha-keyed entries are
 // orphaned by every push, so without a bound the map grows without limit.
 const COMPARE_CACHE_MAX = 1000;
@@ -24,6 +31,30 @@ export interface BranchMeta {
 
 export type RepoBranchWithMeta = RepoBranch & BranchMeta;
 
+export interface RepoSummary {
+  fullName: string;
+  name: string;
+  owner: string;
+  private: boolean;
+  defaultBranch: string;
+  description: string | null;
+  language: string | null;
+  pushedAt: string;
+  htmlUrl: string;
+}
+
+interface GithubRepo {
+  full_name?: string;
+  name?: string;
+  owner?: { login?: string };
+  private?: boolean;
+  default_branch?: string;
+  description?: string | null;
+  language?: string | null;
+  pushed_at?: string;
+  html_url?: string;
+}
+
 @Injectable()
 export class GithubApiService {
   private readonly logger = new Logger(GithubApiService.name);
@@ -32,6 +63,12 @@ export class GithubApiService {
   private readonly compareCache = new Map<
     string,
     { at: number; meta: BranchMeta }
+  >();
+
+  /** Owner-id → GitHub login from the OAuth token, short-TTL cached. */
+  private readonly loginCache = new Map<
+    string,
+    { at: number; login: string }
   >();
 
   constructor(
@@ -285,5 +322,139 @@ export class GithubApiService {
       );
       return empty;
     }
+  }
+
+  /**
+   * List the repos the owner can access via their GitHub OAuth token (personal,
+   * collaborator, and org membership — private included). No `search` lists
+   * `/user/repos` sorted by push; a `search` term narrows via the Search API
+   * scoped to the owner's login. Throws 428 when GitHub is not connected.
+   */
+  async listRepos(
+    ownerId: string,
+    opts: { search?: string; page?: number },
+  ): Promise<{ items: RepoSummary[]; nextPage: number | null }> {
+    const page = opts.page ?? 1;
+    const token = await this.oauthToken(ownerId);
+    if (!token) {
+      throw new HttpException(
+        'GitHub not connected',
+        HttpStatus.PRECONDITION_REQUIRED,
+      );
+    }
+    const headers = this.oauthHeaders(token);
+    const search = opts.search?.trim();
+
+    let url: string;
+    if (search) {
+      const login = await this.getOwnerLogin(ownerId);
+      const q = `${search} user:${login ?? ''}`;
+      url = `${GITHUB_API}/search/repositories?q=${encodeURIComponent(
+        q,
+      )}&sort=updated&per_page=${REPOS_PER_PAGE}&page=${page}`;
+    } else {
+      url =
+        `${GITHUB_API}/user/repos?affiliation=owner,collaborator,organization_member` +
+        `&sort=pushed&per_page=${REPOS_PER_PAGE}&page=${page}`;
+    }
+
+    const res = await fetch(url, { headers });
+    if (res.status === 401) {
+      // Token revoked at GitHub — surface as "not connected" so the UI reconnects.
+      throw new HttpException(
+        'GitHub not connected',
+        HttpStatus.PRECONDITION_REQUIRED,
+      );
+    }
+    if (!res.ok) {
+      this.logger.warn(
+        `repo list failed for owner ${ownerId}: ${res.status} ${res.statusText}`,
+      );
+      throw new HttpException(
+        'GitHub repo list failed',
+        HttpStatus.BAD_GATEWAY,
+      );
+    }
+
+    const body = (await res.json()) as GithubRepo[] | { items?: GithubRepo[] };
+    const repos = Array.isArray(body) ? body : body.items ?? [];
+    const items = repos.map((r) => this.mapRepo(r));
+    const nextPage = items.length === REPOS_PER_PAGE ? page + 1 : null;
+    return { items, nextPage };
+  }
+
+  /** GitHub login for the owner's OAuth token; null when unconnected/unavailable. */
+  async getOwnerLogin(ownerId: string): Promise<string | null> {
+    const cached = this.loginCache.get(ownerId);
+    if (cached && Date.now() - cached.at < LOGIN_CACHE_TTL_MS) {
+      return cached.login;
+    }
+    const token = await this.oauthToken(ownerId);
+    if (!token) return null;
+    try {
+      const res = await fetch(`${GITHUB_API}/user`, {
+        headers: this.oauthHeaders(token),
+      });
+      if (!res.ok) {
+        this.logger.warn(
+          `github /user failed for owner ${ownerId}: ${res.status} ${res.statusText}`,
+        );
+        return null;
+      }
+      const body = (await res.json()) as { login?: string };
+      const login = body.login ?? null;
+      if (login) this.loginCache.set(ownerId, { at: Date.now(), login });
+      return login;
+    } catch (err) {
+      this.logger.warn(
+        `github /user errored for owner ${ownerId}: ${String(err)}`,
+      );
+      return null;
+    }
+  }
+
+  private mapRepo(r: GithubRepo): RepoSummary {
+    const fullName = r.full_name ?? '';
+    return {
+      fullName,
+      name: r.name ?? fullName.split('/').at(-1) ?? '',
+      owner: r.owner?.login ?? fullName.split('/')[0] ?? '',
+      private: Boolean(r.private),
+      defaultBranch: r.default_branch ?? 'main',
+      description: r.description ?? null,
+      language: r.language ?? null,
+      pushedAt: r.pushed_at ?? '',
+      htmlUrl: r.html_url ?? '',
+    };
+  }
+
+  /** Decrypt the owner's GitHub OAuth token (UserIdentity); null when absent. */
+  private async oauthToken(ownerId: string): Promise<string | null> {
+    const identity = await this.prisma.userIdentity.findFirst({
+      where: {
+        userId: ownerId,
+        provider: 'GITHUB',
+        accessTokenEnc: { not: null },
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+    if (!identity?.accessTokenEnc) return null;
+    try {
+      return this.crypto.decrypt(identity.accessTokenEnc);
+    } catch {
+      this.logger.warn(
+        `failed to decrypt github oauth token for owner ${ownerId}`,
+      );
+      return null;
+    }
+  }
+
+  private oauthHeaders(token: string): Record<string, string> {
+    return {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/vnd.github+json',
+      'User-Agent': 'lighthouse',
+      'X-GitHub-Api-Version': '2022-11-28',
+    };
   }
 }

@@ -7,12 +7,15 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuditModule } from './audit/audit.module';
 import { AuthModule } from './auth/auth.module';
+import { AuthzModule } from './authz/authz.module';
 import { BootstrapModule } from './bootstrap/bootstrap.module';
 import { validateEnv } from './config/env';
 import { CryptoModule } from './crypto/crypto.module';
 import { GithubModule } from './github/github.module';
 import { HealthModule } from './health/health.module';
 import { IntegrationsModule } from './integrations/integrations.module';
+import { InvitationsModule } from './invitations/invitations.module';
+import { OrgsModule } from './orgs/orgs.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ProjectsModule } from './projects/projects.module';
 import { ReaperModule } from './reaper/reaper.module';
@@ -40,9 +43,12 @@ import { WsModule } from './ws/ws.module';
     ScheduleModule.forRoot(),
     PrismaModule,
     RedisModule,
+    AuthzModule,
     AuditModule,
     AuthModule,
     ProjectsModule,
+    OrgsModule,
+    InvitationsModule,
     BootstrapModule,
     QueueModule,
     DatabasesModule,

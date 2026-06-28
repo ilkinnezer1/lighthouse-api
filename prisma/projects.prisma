@@ -7,9 +7,19 @@ enum EnvironmentType {
 }
 
 model Project {
-  id      String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  ownerId String @map("owner_id") @db.Uuid
-  owner   User   @relation(fields: [ownerId], references: [id])
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+
+  // Authz anchor: a project belongs to an org; the caller's OrgMembership role
+  // in this org decides what they can do (see src/common/authz.ts).
+  organizationId String       @map("organization_id") @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  // The creator, kept for attribution AND as the per-user namespace anchor:
+  // their username is the `<user>` segment of deploy URLs and whose GitHub
+  // token deploys/branch lookups use. `owner` is the historical relation name
+  // (== creator); the wire shape `project.owner.username` is unchanged.
+  createdByUserId String @map("created_by_user_id") @db.Uuid
+  owner           User   @relation(fields: [createdByUserId], references: [id])
 
   name          String
   slug          String // url-safe, lowercased
@@ -29,9 +39,10 @@ model Project {
 
   environments Environment[]
 
-  @@unique([ownerId, slug])
-  @@unique([ownerId, subdomain])
-  @@index([ownerId])
+  @@unique([createdByUserId, slug])
+  @@unique([createdByUserId, subdomain])
+  @@index([organizationId])
+  @@index([createdByUserId])
   @@index([providerRepoFullName])
   @@map("projects")
 }

@@ -65,7 +65,9 @@ export class DeploymentBranchesService {
       where: { id: environmentId },
       select: {
         branch: true,
-        project: { select: { ownerId: true, providerRepoFullName: true } },
+        project: {
+          select: { createdByUserId: true, providerRepoFullName: true },
+        },
       },
     });
     if (!env) {
@@ -76,7 +78,7 @@ export class DeploymentBranchesService {
     if (!source) {
       throw new BadRequestException('No source branch to deploy');
     }
-    const { ownerId, providerRepoFullName } = env.project;
+    const { createdByUserId, providerRepoFullName } = env.project;
     if (!providerRepoFullName) {
       throw new BadRequestException(
         'Project is not linked to a GitHub repository',
@@ -84,7 +86,7 @@ export class DeploymentBranchesService {
     }
 
     const branches = await this.github.listBranches(
-      ownerId,
+      createdByUserId,
       providerRepoFullName,
     );
     if (branches === null) {

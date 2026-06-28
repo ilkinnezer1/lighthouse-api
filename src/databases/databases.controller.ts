@@ -16,7 +16,7 @@ import type { User } from '@prisma/client';
 import { Audit } from '../audit/audit.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { ensureCan } from '../common/authz';
+import { AuthzService } from '../authz/authz.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { DatabasesService } from './databases.service';
 import { CreateDatabaseDto } from './dto/create-database.dto';
@@ -28,6 +28,7 @@ export class DatabasesController {
   constructor(
     private readonly databases: DatabasesService,
     private readonly prisma: PrismaService,
+    private readonly authz: AuthzService,
   ) {}
 
   @Post('environments/:envId/databases')
@@ -40,12 +41,14 @@ export class DatabasesController {
   ) {
     const env = await this.prisma.environment.findUnique({
       where: { id: envId },
-      select: { project: { select: { ownerId: true, deletedAt: true } } },
+      select: {
+        project: { select: { organizationId: true, deletedAt: true } },
+      },
     });
     if (!env || env.project.deletedAt) {
       throw new NotFoundException('Environment not found');
     }
-    ensureCan(user, 'databases.create', env.project);
+    await this.authz.ensureCan(user, 'databases.create', env.project);
 
     // Modes that seed from / reuse an existing resource also require owning it.
     if (dto.mode === 'attach-existing') {
@@ -53,7 +56,11 @@ export class DatabasesController {
       if (!source || source.environment.project.deletedAt) {
         throw new NotFoundException('Source database not found');
       }
-      ensureCan(user, 'databases.create', source.environment.project);
+      await this.authz.ensureCan(
+        user,
+        'databases.create',
+        source.environment.project,
+      );
     } else if (dto.mode === 'copy') {
       const source = await this.databases.findByIdWithOwner(
         dto.sourceDatabaseId!,
@@ -61,13 +68,21 @@ export class DatabasesController {
       if (!source || source.environment.project.deletedAt) {
         throw new NotFoundException('Source database not found');
       }
-      ensureCan(user, 'databases.read', source.environment.project);
+      await this.authz.ensureCan(
+        user,
+        'databases.read',
+        source.environment.project,
+      );
     } else if (dto.mode === 'create-from-snapshot') {
       const snap = await this.databases.findSnapshotWithOwner(dto.snapshotId!);
       if (!snap || snap.database.environment.project.deletedAt) {
         throw new NotFoundException('Snapshot not found');
       }
-      ensureCan(user, 'snapshots.read', snap.database.environment.project);
+      await this.authz.ensureCan(
+        user,
+        'snapshots.read',
+        snap.database.environment.project,
+      );
     }
 
     return this.databases.create(envId, user.id, dto);
@@ -80,18 +95,21 @@ export class DatabasesController {
   ) {
     const env = await this.prisma.environment.findUnique({
       where: { id: envId },
-      select: { project: { select: { ownerId: true, deletedAt: true } } },
+      select: {
+        project: { select: { organizationId: true, deletedAt: true } },
+      },
     });
     if (!env || env.project.deletedAt) {
       throw new NotFoundException('Environment not found');
     }
-    ensureCan(user, 'databases.read', env.project);
+    await this.authz.ensureCan(user, 'databases.read', env.project);
     return this.databases.listByEnvironment(envId);
   }
 
   @Get('databases')
   async listAll(@Query() query: ListDatabasesDto, @CurrentUser() user: User) {
-    return this.databases.listAllForOwner(user, query);
+    const orgId = await this.authz.resolveScopeOrgId(user, query.orgId);
+    return this.databases.listForOrg(orgId, query);
   }
 
   @Get('databases/:id')
@@ -109,7 +127,7 @@ export class DatabasesController {
     if (environment.project.deletedAt) {
       throw new NotFoundException();
     }
-    ensureCan(user, 'databases.read', environment.project);
+    await this.authz.ensureCan(user, 'databases.read', environment.project);
     return rest;
   }
 
@@ -124,7 +142,11 @@ export class DatabasesController {
     if (!db || db.environment.project.deletedAt) {
       throw new NotFoundException();
     }
-    ensureCan(user, 'databases.delete', db.environment.project);
+    await this.authz.ensureCan(
+      user,
+      'databases.delete',
+      db.environment.project,
+    );
     await this.databases.remove(id, user.id);
   }
 }

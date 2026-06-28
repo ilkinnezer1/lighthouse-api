@@ -1,7 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Env } from '../config/env';
-import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHmac,
+  randomBytes,
+} from 'node:crypto';
 
 const ALGO = 'aes-256-gcm';
 const IV_BYTES = 12;
@@ -49,5 +54,18 @@ export class CryptoService {
     return Buffer.concat([decipher.update(ct), decipher.final()]).toString(
       'utf8',
     );
+  }
+
+  // High-entropy, URL-safe one-time secret (e.g. an invite link token). The
+  // plaintext is shown to the caller once; only its hash is persisted.
+  randomToken(bytes = 32): string {
+    return randomBytes(bytes).toString('base64url');
+  }
+
+  // Deterministic, peppered (HMAC under the master key) digest used to store and
+  // look up a high-entropy token at rest. One-way: a leaked digest can't be
+  // matched without the master key, and the plaintext token is never stored.
+  hashToken(token: string): string {
+    return createHmac('sha256', this.key).update(token).digest('hex');
   }
 }

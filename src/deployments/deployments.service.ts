@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
-import type { DeploymentStatus, User } from '@prisma/client';
+import type { DeploymentStatus } from '@prisma/client';
 import { buildDeployUrl } from '../common/url';
 import type { Env } from '../config/env';
 import { OUTBOX_EVENT_TYPES } from '../outbox/outbox.constants';
@@ -205,8 +205,10 @@ export class DeploymentsService {
     return { ...deployment, url: this.urlFor(deployment.environment) };
   }
 
-  async listAllForOwner(
-    user: Pick<User, 'id' | 'role'>,
+  // Scoped to one org (the caller's resolved active/personal org); membership is
+  // validated by the controller via AuthzService.resolveScopeOrgId.
+  async listForOrg(
+    organizationId: string,
     opts: {
       limit?: number;
       cursor?: string;
@@ -221,7 +223,7 @@ export class DeploymentsService {
         project: {
           deletedAt: null,
           id: opts.projectId,
-          ownerId: user.role === 'ADMIN' ? undefined : user.id,
+          organizationId,
         },
       },
     };

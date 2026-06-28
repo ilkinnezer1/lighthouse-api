@@ -1,48 +1,101 @@
-import { User } from '@prisma/client';
 import { ForbiddenException } from '@nestjs/common';
+import { OrgRole, type User } from '@prisma/client';
 
+// Capabilities, scoped to an organization. A caller's OrgMembership role in the
+// resource's org is matched against ROLE_CAPABILITIES (see AuthzService).
 export type Action =
+  // reads — every role, membership is the gate
   | 'projects.read'
-  | 'projects.update'
-  | 'projects.delete'
   | 'environments.read'
+  | 'deployments.read'
+  | 'databases.read'
+  | 'snapshots.read'
+  | 'members.read'
+  // writes / manage — Owner, Admin, Member (not Viewer)
+  | 'projects.create'
+  | 'projects.update'
   | 'environments.update'
   | 'environments.delete'
   | 'deployments.create'
-  | 'deployments.read'
   | 'deployments.update'
   | 'deployments.cancel'
   | 'deployments.exec'
   | 'databases.create'
-  | 'databases.read'
   | 'databases.delete'
   | 'snapshots.create'
-  | 'snapshots.read'
   | 'snapshots.restore'
   | 'snapshots.delete'
-  | 'integrations.read'
-  | 'integrations.connect'
-  | 'integrations.disconnect'
-  | 'audit.read';
+  // admin-level — Owner, Admin
+  | 'projects.delete'
+  | 'members.manage'
+  | 'audit.read'
+  // owner-only — rename/delete org, transfer ownership
+  | 'org.update'
+  | 'org.delete'
+  | 'org.transfer';
 
-export interface OwnedResource {
-  ownerId: string;
-}
-export function can(
-  user: Pick<User, 'id' | 'role'>,
-  _action: Action,
-  resource: OwnedResource,
-): boolean {
-  if (user.role === 'ADMIN') return true;
-  return resource.ownerId === user.id;
+// Approved role → capability matrix (teams-orgs-rbac spec). OWNER is a strict
+// superset of ADMIN, which is a strict superset of MEMBER, which adds writes
+// over VIEWER's read-only set. Built additively so the layering is obvious.
+const READ_ACTIONS: Action[] = [
+  'projects.read',
+  'environments.read',
+  'deployments.read',
+  'databases.read',
+  'snapshots.read',
+  'members.read',
+];
+
+const WRITE_ACTIONS: Action[] = [
+  'projects.create',
+  'projects.update',
+  'environments.update',
+  'environments.delete',
+  'deployments.create',
+  'deployments.update',
+  'deployments.cancel',
+  'deployments.exec',
+  'databases.create',
+  'databases.delete',
+  'snapshots.create',
+  'snapshots.restore',
+  'snapshots.delete',
+];
+
+const ADMIN_ACTIONS: Action[] = [
+  'projects.delete',
+  'members.manage',
+  'audit.read',
+];
+
+const OWNER_ACTIONS: Action[] = ['org.update', 'org.delete', 'org.transfer'];
+
+const VIEWER = READ_ACTIONS;
+const MEMBER = [...VIEWER, ...WRITE_ACTIONS];
+const ADMIN = [...MEMBER, ...ADMIN_ACTIONS];
+const OWNER = [...ADMIN, ...OWNER_ACTIONS];
+
+export const ROLE_CAPABILITIES: Record<OrgRole, ReadonlySet<Action>> = {
+  [OrgRole.OWNER]: new Set(OWNER),
+  [OrgRole.ADMIN]: new Set(ADMIN),
+  [OrgRole.MEMBER]: new Set(MEMBER),
+  [OrgRole.VIEWER]: new Set(VIEWER),
+};
+
+// Org-scoped resources expose the organization that owns them; the resource's
+// org is resolved (often via its parent project) before authorizing.
+export interface OrgScopedResource {
+  organizationId: string;
 }
 
-export function ensureCan(
+// Personal resources are not org-scoped: a user's GitHub integration token and
+// their own audit trail belong to the user, regardless of any org role. Only
+// the owner (or a platform admin) may act on them.
+export function ensureSelf(
   user: Pick<User, 'id' | 'role'>,
-  action: Action,
-  resource: OwnedResource,
+  ownerId: string,
 ): void {
-  if (!can(user, action, resource)) {
-    throw new ForbiddenException(`Not allowed: ${action}`);
+  if (user.role !== 'ADMIN' && ownerId !== user.id) {
+    throw new ForbiddenException('Not allowed');
   }
 }

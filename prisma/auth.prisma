@@ -30,10 +30,14 @@ model User {
 
   identities     UserIdentity[]
   gitCredentials GitCredential[]
-  projects       Project[]
+  projects       Project[] // projects this user created (owner/namespace)
   auditLogs      AuditLog[]
   deployments    Deployment[]    // deployments this user triggered
   outboxEvents   EventOutbox[]   // events targeted at this user
+
+  memberships         OrgMembership[]
+  sentInvitations     OrgInvitation[] @relation("OrgInvitationsSent")
+  receivedInvitations OrgInvitation[] @relation("OrgInvitationsReceived")
 
   @@map("users")
 }

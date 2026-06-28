@@ -12,7 +12,7 @@ import {
 import { Redis } from 'ioredis';
 import type { Subscription } from 'rxjs';
 import type { Namespace, Socket } from 'socket.io';
-import { ensureCan } from '../common/authz';
+import { AuthzService } from '../authz/authz.service';
 import type { Env } from '../config/env';
 import { OutboxEvents, type OutboxEvent } from '../outbox/outbox.events';
 import { PrismaService } from '../prisma/prisma.service';
@@ -56,6 +56,7 @@ export class WsGateway
     private readonly prisma: PrismaService,
     private readonly outbox: OutboxEvents,
     private readonly config: ConfigService<Env, true>,
+    private readonly authz: AuthzService,
     @InjectRedis() private readonly redis: Redis,
   ) {}
 
@@ -116,7 +117,7 @@ export class WsGateway
     const project = await this.loadProject(deploymentId);
     if (!project) return { ok: false, error: 'not found' };
     try {
-      ensureCan(user, 'deployments.read', project);
+      await this.authz.ensureCan(user, 'deployments.read', project);
     } catch {
       return { ok: false, error: 'forbidden' };
     }
@@ -147,7 +148,9 @@ export class WsGateway
       where: { id: deploymentId },
       select: {
         environment: {
-          select: { project: { select: { ownerId: true, deletedAt: true } } },
+          select: {
+            project: { select: { organizationId: true, deletedAt: true } },
+          },
         },
       },
     });

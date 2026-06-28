@@ -14,7 +14,8 @@ import type { User } from '@prisma/client';
 import { Audit } from '../audit/audit.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { Action, ensureCan } from '../common/authz';
+import { AuthzService } from '../authz/authz.service';
+import { Action } from '../common/authz';
 import { PrismaService } from '../prisma/prisma.service';
 import { SetEnvVarsDto } from './dto/set-env-vars.dto';
 import { EnvVarsService } from './env-vars.service';
@@ -25,6 +26,7 @@ export class EnvVarsController {
   constructor(
     private readonly envVars: EnvVarsService,
     private readonly prisma: PrismaService,
+    private readonly authz: AuthzService,
   ) {}
 
   @Get()
@@ -77,11 +79,13 @@ export class EnvVarsController {
   ): Promise<void> {
     const env = await this.prisma.environment.findUnique({
       where: { id: envId },
-      select: { project: { select: { ownerId: true, deletedAt: true } } },
+      select: {
+        project: { select: { organizationId: true, deletedAt: true } },
+      },
     });
     if (!env || env.project.deletedAt) {
       throw new NotFoundException('Environment not found');
     }
-    ensureCan(user, action, env.project);
+    await this.authz.ensureCan(user, action, env.project);
   }
 }

@@ -38,6 +38,11 @@ export class ListAuditLogsDto {
   @IsUUID()
   actorUserId?: string;
 
+  // Active org whose activity to show; defaults to the caller's personal org.
+  @IsOptional()
+  @IsUUID()
+  orgId?: string;
+
   @IsOptional()
   @IsISO8601()
   from?: string;

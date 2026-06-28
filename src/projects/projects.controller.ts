@@ -19,7 +19,7 @@ import type { User } from '@prisma/client';
 import { Audit } from '../audit/audit.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { ensureCan } from '../common/authz';
+import { AuthzService } from '../authz/authz.service';
 import { CryptoService } from '../crypto/crypto.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
@@ -34,6 +34,7 @@ export class ProjectsController {
   constructor(
     private readonly projects: ProjectsService,
     private readonly crypto: CryptoService,
+    private readonly authz: AuthzService,
   ) {}
 
   @Post()
@@ -41,6 +42,14 @@ export class ProjectsController {
   async create(@Body() dto: CreateProjectDto, @CurrentUser() user: User) {
     if (dto.subdomain && isReservedSubdomain(dto.subdomain)) {
       throw new BadRequestException('Subdomain is reserved');
+    }
+
+    // Targeting a shared org requires membership + `projects.create` (Member+);
+    // ensureCan denies non-members. Absent → the service uses the personal org.
+    if (dto.organizationId) {
+      await this.authz.ensureCan(user, 'projects.create', {
+        organizationId: dto.organizationId,
+      });
     }
 
     const slug = slugify(dto.name) || generateSubdomain();
@@ -56,6 +65,7 @@ export class ProjectsController {
           subdomain,
           repoUrl: dto.repoUrl,
           defaultBranch: dto.defaultBranch,
+          organizationId: dto.organizationId,
         });
       } catch (err) {
         const isSubdomainConflict =
@@ -76,8 +86,12 @@ export class ProjectsController {
   }
 
   @Get()
-  list(@CurrentUser() user: User) {
-    return this.projects.findAllByOwner(user.id);
+  async list(
+    @CurrentUser() user: User,
+    @Query('orgId', new ParseUUIDPipe({ optional: true })) orgId?: string,
+  ) {
+    const scopeOrgId = await this.authz.resolveScopeOrgId(user, orgId);
+    return this.projects.listForOrg(scopeOrgId);
   }
 
   @Get(':id')
@@ -89,7 +103,7 @@ export class ProjectsController {
     if (!project) {
       throw new NotFoundException();
     }
-    ensureCan(user, 'projects.read', project);
+    await this.authz.ensureCan(user, 'projects.read', project);
 
     // tolerate an undecryptable secret (e.g. encrypted under a rotated key) so
     // the detail page loads instead of 500-ing
@@ -115,7 +129,7 @@ export class ProjectsController {
     if (!project) {
       throw new NotFoundException();
     }
-    ensureCan(user, 'projects.read', project);
+    await this.authz.ensureCan(user, 'projects.read', project);
     return this.projects.listBranches(
       project,
       base?.trim() || undefined,
@@ -134,7 +148,7 @@ export class ProjectsController {
     if (!existing) {
       throw new NotFoundException();
     }
-    ensureCan(user, 'projects.update', existing);
+    await this.authz.ensureCan(user, 'projects.update', existing);
     return this.projects.update(id, dto);
   }
 
@@ -149,7 +163,7 @@ export class ProjectsController {
     if (!existing) {
       throw new NotFoundException();
     }
-    ensureCan(user, 'projects.delete', existing);
+    await this.authz.ensureCan(user, 'projects.delete', existing);
     await this.projects.softDelete(id);
   }
 }

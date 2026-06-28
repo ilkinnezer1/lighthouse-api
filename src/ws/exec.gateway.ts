@@ -9,7 +9,7 @@ import {
 } from '@nestjs/websockets';
 import type { Namespace, Socket } from 'socket.io';
 import { WebSocket } from 'ws';
-import { ensureCan } from '../common/authz';
+import { AuthzService } from '../authz/authz.service';
 import type { Env } from '../config/env';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
@@ -63,6 +63,7 @@ export class ExecGateway
     private readonly users: UsersService,
     private readonly prisma: PrismaService,
     private readonly config: ConfigService<Env, true>,
+    private readonly authz: AuthzService,
   ) {}
 
   afterInit(namespace: Namespace): void {
@@ -108,7 +109,9 @@ export class ExecGateway
       select: {
         status: true,
         environment: {
-          select: { project: { select: { ownerId: true, deletedAt: true } } },
+          select: {
+            project: { select: { organizationId: true, deletedAt: true } },
+          },
         },
         services: { select: { name: true, isWeb: true, containerId: true } },
       },
@@ -117,7 +120,11 @@ export class ExecGateway
       return { ok: false, error: 'not found' };
     }
     try {
-      ensureCan(user, 'deployments.exec', dep.environment.project);
+      await this.authz.ensureCan(
+        user,
+        'deployments.exec',
+        dep.environment.project,
+      );
     } catch {
       return { ok: false, error: 'forbidden' };
     }

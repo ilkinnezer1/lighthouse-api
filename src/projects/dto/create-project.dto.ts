@@ -2,6 +2,7 @@ import {
   IsOptional,
   IsString,
   IsUrl,
+  IsUUID,
   Matches,
   MaxLength,
   MinLength,
@@ -13,6 +14,12 @@ export class CreateProjectDto {
   @MinLength(1)
   @MaxLength(80)
   name!: string;
+
+  // Target org for the new project. Absent → the caller's personal org. When
+  // present the caller must be a member with `projects.create` (Member+).
+  @IsOptional()
+  @IsUUID()
+  organizationId?: string;
 
   @IsUrl({ protocols: ['http', 'https'], require_protocol: true })
   repoUrl!: string;

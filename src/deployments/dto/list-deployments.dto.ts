@@ -1,12 +1,5 @@
 import { Type } from 'class-transformer';
-import {
-  IsEnum,
-  IsInt,
-  IsOptional,
-  IsUUID,
-  Max,
-  Min,
-} from 'class-validator';
+import { IsEnum, IsInt, IsOptional, IsUUID, Max, Min } from 'class-validator';
 import { DeploymentStatus } from '@prisma/client';
 
 export class ListDeploymentsDto {
@@ -28,4 +21,9 @@ export class ListDeploymentsDto {
   @IsOptional()
   @IsUUID()
   projectId?: string;
+
+  // Active org to scope to; defaults to the caller's personal org when absent.
+  @IsOptional()
+  @IsUUID()
+  orgId?: string;
 }

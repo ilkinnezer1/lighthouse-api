@@ -16,7 +16,7 @@ import type { User } from '@prisma/client';
 import { Audit } from '../audit/audit.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { ensureCan } from '../common/authz';
+import { AuthzService } from '../authz/authz.service';
 import { DatabasesService } from '../databases/databases.service';
 import { SnapshotsService } from './snapshots.service';
 
@@ -26,6 +26,7 @@ export class SnapshotsController {
   constructor(
     private readonly snapshots: SnapshotsService,
     private readonly databases: DatabasesService,
+    private readonly authz: AuthzService,
   ) {}
 
   @Post('databases/:id/snapshots')
@@ -39,7 +40,11 @@ export class SnapshotsController {
     if (!db || db.environment.project.deletedAt) {
       throw new NotFoundException('Database not found');
     }
-    ensureCan(user, 'snapshots.create', db.environment.project);
+    await this.authz.ensureCan(
+      user,
+      'snapshots.create',
+      db.environment.project,
+    );
     if (db.type !== 'POSTGRES') {
       throw new BadRequestException(
         'Snapshots are only supported for POSTGRES databases',
@@ -60,7 +65,7 @@ export class SnapshotsController {
     if (!db || db.environment.project.deletedAt) {
       throw new NotFoundException('Database not found');
     }
-    ensureCan(user, 'snapshots.read', db.environment.project);
+    await this.authz.ensureCan(user, 'snapshots.read', db.environment.project);
     return this.snapshots.listByDatabase(databaseId);
   }
 
@@ -75,7 +80,11 @@ export class SnapshotsController {
     if (!snap || snap.database.environment.project.deletedAt) {
       throw new NotFoundException();
     }
-    ensureCan(user, 'snapshots.restore', snap.database.environment.project);
+    await this.authz.ensureCan(
+      user,
+      'snapshots.restore',
+      snap.database.environment.project,
+    );
     if (snap.status !== 'READY') {
       throw new ConflictException('Snapshot is not READY');
     }
@@ -96,7 +105,11 @@ export class SnapshotsController {
     if (!snap || snap.database.environment.project.deletedAt) {
       throw new NotFoundException();
     }
-    ensureCan(user, 'snapshots.delete', snap.database.environment.project);
+    await this.authz.ensureCan(
+      user,
+      'snapshots.delete',
+      snap.database.environment.project,
+    );
     await this.snapshots.remove(id, user.id);
   }
 }

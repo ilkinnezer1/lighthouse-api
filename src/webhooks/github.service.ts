@@ -112,7 +112,7 @@ export class GithubWebhookService {
       return;
     }
 
-    await this.deployments.create(env.id, project.ownerId, {
+    await this.deployments.create(env.id, project.createdByUserId, {
       commit: {
         sha: payload.head_commit?.id,
         message: payload.head_commit?.message,
@@ -169,16 +169,18 @@ export class GithubWebhookService {
       update: { branch: headRef, active: true },
     });
 
-    const deployment = await this.deployments.create(env.id, project.ownerId, {
-      commit: { sha: headSha },
-    });
+    const deployment = await this.deployments.create(
+      env.id,
+      project.createdByUserId,
+      { commit: { sha: headSha } },
+    );
 
     if (
       (payload.action === 'opened' || payload.action === 'reopened') &&
       project.providerRepoFullName
     ) {
       void this.github.commentOnPR({
-        ownerId: project.ownerId,
+        ownerId: project.createdByUserId,
         repoFullName: project.providerRepoFullName,
         prNumber,
         body: `Preview deployed: ${deployment.url}`,

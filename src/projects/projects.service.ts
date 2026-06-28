@@ -8,6 +8,7 @@ import {
 import { Prisma } from '@prisma/client';
 import type { Environment, Project } from '@prisma/client';
 import { randomBytes } from 'node:crypto';
+import { AuthzService } from '../authz/authz.service';
 import { CryptoService } from '../crypto/crypto.service';
 import {
   GithubApiService,
@@ -28,18 +29,24 @@ export class ProjectsService {
     private readonly prisma: PrismaService,
     private readonly crypto: CryptoService,
     private readonly github: GithubApiService,
+    private readonly authz: AuthzService,
   ) {}
 
   async create(
-    ownerId: string,
+    userId: string,
     data: {
       name: string;
       slug: string;
       subdomain: string;
       repoUrl: string;
       defaultBranch?: string;
+      organizationId?: string;
     },
   ): Promise<ProjectWithEnvironments> {
+    // Use the caller-chosen org (already authorized by the controller) or fall
+    // back to their personal org so solo creation is unchanged.
+    const organizationId =
+      data.organizationId ?? (await this.authz.personalOrgId(userId));
     const webhookSecretEnc = this.crypto.encrypt(
       randomBytes(32).toString('hex'),
     );
@@ -51,7 +58,7 @@ export class ProjectsService {
     let branch = data.defaultBranch;
     if (!branch && providerRepoFullName) {
       branch =
-        (await this.github.getDefaultBranch(ownerId, providerRepoFullName)) ??
+        (await this.github.getDefaultBranch(userId, providerRepoFullName)) ??
         undefined;
     }
     branch = branch || 'main';
@@ -59,7 +66,8 @@ export class ProjectsService {
     try {
       return await this.prisma.project.create({
         data: {
-          ownerId,
+          organizationId,
+          createdByUserId: userId,
           name: data.name,
           slug: data.slug,
           subdomain: data.subdomain,
@@ -92,9 +100,11 @@ export class ProjectsService {
     }
   }
 
-  findAllByOwner(ownerId: string): Promise<Project[]> {
+  // Projects in one org (the caller's resolved active/personal org). Membership
+  // is validated by the caller via AuthzService.resolveScopeOrgId.
+  listForOrg(organizationId: string): Promise<Project[]> {
     return this.prisma.project.findMany({
-      where: { ownerId, deletedAt: null },
+      where: { deletedAt: null, organizationId },
       orderBy: { createdAt: 'desc' },
     });
   }
@@ -124,13 +134,13 @@ export class ProjectsService {
     }
     const branches = base
       ? await this.github.listBranchesWithDeltas(
-          project.ownerId,
+          project.createdByUserId,
           project.providerRepoFullName,
           base,
           refresh,
         )
       : await this.github.listBranches(
-          project.ownerId,
+          project.createdByUserId,
           project.providerRepoFullName,
         );
     if (branches === null) {

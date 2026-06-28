@@ -1,0 +1,83 @@
+// Models: Organization, OrgMembership, OrgInvitation.
+// Enums: OrgRole, OrgInvitationStatus.
+//
+// Tenancy anchor for the whole platform: every Project belongs to an
+// Organization, and a user's role in that org (OrgMembership) drives authz via
+// ROLE_CAPABILITIES (see src/common/authz.ts). Each user owns exactly one
+// personal org (isPersonal=true) so single-owner data migrates in unchanged.
+
+enum OrgRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+enum OrgInvitationStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  REVOKED
+  EXPIRED
+}
+
+model Organization {
+  id         String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name       String
+  slug       String  @unique // url-safe; personal orgs use the owner's username
+  isPersonal Boolean @default(false) @map("is_personal")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  memberships OrgMembership[]
+  invitations OrgInvitation[]
+  projects    Project[]
+
+  @@map("organizations")
+}
+
+model OrgMembership {
+  id           String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId        String       @map("org_id") @db.Uuid
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  userId       String       @map("user_id") @db.Uuid
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role         OrgRole
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@unique([orgId, userId])
+  @@index([userId])
+  @@map("org_memberships")
+}
+
+model OrgInvitation {
+  id           String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId        String       @map("org_id") @db.Uuid
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  role         OrgRole
+
+  invitedByUserId String @map("invited_by_user_id") @db.Uuid
+  invitedBy       User   @relation("OrgInvitationsSent", fields: [invitedByUserId], references: [id])
+
+  // In-app invite of an existing user (accept/decline from their inbox)...
+  inviteeUserId String? @map("invitee_user_id") @db.Uuid
+  invitee       User?   @relation("OrgInvitationsReceived", fields: [inviteeUserId], references: [id], onDelete: Cascade)
+
+  // ...or a shareable link invite: high-entropy token stored hashed (never
+  // plaintext), single-use, revocable, expiring. `email` is optional metadata.
+  tokenHash String? @unique @map("token_hash")
+  email     String?
+
+  status    OrgInvitationStatus @default(PENDING)
+  expiresAt DateTime            @map("expires_at") @db.Timestamptz(3)
+  createdAt DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  // A partial-unique index (status=PENDING) blocking duplicate pending invites
+  // to the same org for one invitee lives in the migration SQL — Prisma can't
+  // express partial indexes in-schema.
+  @@index([orgId])
+  @@index([inviteeUserId])
+  @@map("org_invitations")
+}

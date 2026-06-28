@@ -1,9 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import type { User } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 export interface ListAuditLogsOptions {
+  // The org to scope the feed to; rows are restricted to its members' activity.
+  orgId: string;
   limit?: number;
   cursor?: string;
   action?: string;
@@ -21,13 +22,17 @@ const MAX_LIMIT = 100;
 export class AuditQueryService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async list(user: Pick<User, 'id' | 'role'>, opts: ListAuditLogsOptions = {}) {
+  async list(opts: ListAuditLogsOptions) {
     const limit = Math.min(Math.max(opts.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
 
-    // Non-admins can only ever read their own rows; an actorUserId param from a
-    // regular user is ignored, not honored.
+    // The activity feed is org-scoped (caller already gated on `audit.read`):
+    // restrict to the org members' rows. An optional actorUserId narrows to one
+    // member; a non-member actorUserId is ignored, never honored.
+    const memberIds = await this.orgMemberIds(opts.orgId);
     const actorUserId =
-      user.role === 'ADMIN' ? opts.actorUserId : user.id;
+      opts.actorUserId && memberIds.includes(opts.actorUserId)
+        ? opts.actorUserId
+        : { in: memberIds };
 
     const createdAt = this.dateRange(opts.from, opts.to);
     const where: Prisma.AuditLogWhereInput = {
@@ -42,9 +47,7 @@ export class AuditQueryService {
       where,
       orderBy: { id: 'desc' },
       take: limit + 1,
-      ...(opts.cursor
-        ? { cursor: { id: BigInt(opts.cursor) }, skip: 1 }
-        : {}),
+      ...(opts.cursor ? { cursor: { id: BigInt(opts.cursor) }, skip: 1 } : {}),
       select: {
         id: true,
         action: true,
@@ -77,6 +80,14 @@ export class AuditQueryService {
       items,
       nextCursor: hasMore ? items[items.length - 1].id : null,
     };
+  }
+
+  private async orgMemberIds(orgId: string): Promise<string[]> {
+    const members = await this.prisma.orgMembership.findMany({
+      where: { orgId },
+      select: { userId: true },
+    });
+    return members.map((m) => m.userId);
   }
 
   private dateRange(

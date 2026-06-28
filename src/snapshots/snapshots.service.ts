@@ -95,7 +95,7 @@ export class SnapshotsService {
             status: true,
             environment: {
               select: {
-                project: { select: { ownerId: true, deletedAt: true } },
+                project: { select: { organizationId: true, deletedAt: true } },
               },
             },
           },

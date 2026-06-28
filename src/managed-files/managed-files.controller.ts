@@ -16,7 +16,8 @@ import type { ZodType } from 'zod';
 import { Audit } from '../audit/audit.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { Action, ensureCan } from '../common/authz';
+import { AuthzService } from '../authz/authz.service';
+import { Action } from '../common/authz';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   DeleteManagedFileSchema,
@@ -31,6 +32,7 @@ export class ManagedFilesController {
   constructor(
     private readonly files: ManagedFilesService,
     private readonly prisma: PrismaService,
+    private readonly authz: AuthzService,
   ) {}
 
   @Get()
@@ -94,12 +96,14 @@ export class ManagedFilesController {
   ): Promise<void> {
     const env = await this.prisma.environment.findUnique({
       where: { id },
-      select: { project: { select: { ownerId: true, deletedAt: true } } },
+      select: {
+        project: { select: { organizationId: true, deletedAt: true } },
+      },
     });
     if (!env || env.project.deletedAt) {
       throw new NotFoundException('Environment not found');
     }
-    ensureCan(user, action, env.project);
+    await this.authz.ensureCan(user, action, env.project);
   }
 }
 

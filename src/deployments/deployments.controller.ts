@@ -21,7 +21,7 @@ import type { Request, Response } from 'express';
 import { Audit } from '../audit/audit.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { ensureCan } from '../common/authz';
+import { AuthzService } from '../authz/authz.service';
 import type { Env } from '../config/env';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -44,6 +44,7 @@ export class DeploymentsController {
     private readonly deployments: DeploymentsService,
     private readonly prisma: PrismaService,
     private readonly config: ConfigService<Env, true>,
+    private readonly authz: AuthzService,
   ) {}
 
   @Post('environments/:envId/deployments')
@@ -63,7 +64,7 @@ export class DeploymentsController {
       throw new NotFoundException('Environment not found');
     }
 
-    ensureCan(user, 'deployments.create', env.project);
+    await this.authz.ensureCan(user, 'deployments.create', env.project);
 
     return this.deployments.create(envId, user.id, {
       sourceBranch: dto.sourceBranch,
@@ -83,13 +84,14 @@ export class DeploymentsController {
     if (!env || env.project.deletedAt) {
       throw new NotFoundException('Environment not found');
     }
-    ensureCan(user, 'deployments.read', env.project);
+    await this.authz.ensureCan(user, 'deployments.read', env.project);
     return this.deployments.listByEnvironment(envId);
   }
 
   @Get('deployments')
   async listAll(@Query() query: ListDeploymentsDto, @CurrentUser() user: User) {
-    return this.deployments.listAllForOwner(user, query);
+    const orgId = await this.authz.resolveScopeOrgId(user, query.orgId);
+    return this.deployments.listForOrg(orgId, query);
   }
 
   @Get('deployments/:id')
@@ -101,7 +103,11 @@ export class DeploymentsController {
     if (!dep || dep.environment.project.deletedAt) {
       throw new NotFoundException();
     }
-    ensureCan(user, 'deployments.read', dep.environment.project);
+    await this.authz.ensureCan(
+      user,
+      'deployments.read',
+      dep.environment.project,
+    );
     return dep;
   }
 
@@ -125,7 +131,11 @@ export class DeploymentsController {
     if (!dep || dep.environment.project.deletedAt) {
       throw new NotFoundException();
     }
-    ensureCan(user, 'deployments.update', dep.environment.project);
+    await this.authz.ensureCan(
+      user,
+      'deployments.update',
+      dep.environment.project,
+    );
 
     // Pick the target service (named, or the web service by default) and make
     // sure it actually has a live container before opening the upstream stream.
@@ -196,7 +206,11 @@ export class DeploymentsController {
     if (!dep || dep.environment.project.deletedAt) {
       throw new NotFoundException();
     }
-    ensureCan(user, 'deployments.exec', dep.environment.project);
+    await this.authz.ensureCan(
+      user,
+      'deployments.exec',
+      dep.environment.project,
+    );
 
     const actions = maintenanceActionsFor(dep)
       .filter((a) => hasContainer(dep, a.service))
@@ -228,7 +242,11 @@ export class DeploymentsController {
     if (!dep || dep.environment.project.deletedAt) {
       throw new NotFoundException();
     }
-    ensureCan(user, 'deployments.exec', dep.environment.project);
+    await this.authz.ensureCan(
+      user,
+      'deployments.exec',
+      dep.environment.project,
+    );
 
     const action = maintenanceActionsFor(dep).find((a) => a.id === actionId);
     if (!action) {
@@ -297,14 +315,20 @@ export class DeploymentsController {
       where: { id },
       select: {
         environment: {
-          select: { project: { select: { ownerId: true, deletedAt: true } } },
+          select: {
+            project: { select: { organizationId: true, deletedAt: true } },
+          },
         },
       },
     });
     if (!dep || dep.environment.project.deletedAt) {
       throw new NotFoundException();
     }
-    ensureCan(user, 'deployments.cancel', dep.environment.project);
+    await this.authz.ensureCan(
+      user,
+      'deployments.cancel',
+      dep.environment.project,
+    );
     await this.deployments.cancel(id);
   }
 
@@ -337,14 +361,20 @@ export class DeploymentsController {
       where: { id },
       select: {
         environment: {
-          select: { project: { select: { ownerId: true, deletedAt: true } } },
+          select: {
+            project: { select: { organizationId: true, deletedAt: true } },
+          },
         },
       },
     });
     if (!dep || dep.environment.project.deletedAt) {
       throw new NotFoundException();
     }
-    ensureCan(user, 'deployments.create', dep.environment.project);
+    await this.authz.ensureCan(
+      user,
+      'deployments.create',
+      dep.environment.project,
+    );
   }
 
   // Stop/start/restart a single named container of a deployment by proxying the
@@ -396,14 +426,20 @@ export class DeploymentsController {
       where: { id },
       select: {
         environment: {
-          select: { project: { select: { ownerId: true, deletedAt: true } } },
+          select: {
+            project: { select: { organizationId: true, deletedAt: true } },
+          },
         },
       },
     });
     if (!dep || dep.environment.project.deletedAt) {
       throw new NotFoundException();
     }
-    ensureCan(user, 'deployments.update', dep.environment.project);
+    await this.authz.ensureCan(
+      user,
+      'deployments.update',
+      dep.environment.project,
+    );
   }
 
   // Instantaneous CPU/memory readout for one running service, proxied verbatim
@@ -420,7 +456,11 @@ export class DeploymentsController {
     if (!dep || dep.environment.project.deletedAt) {
       throw new NotFoundException();
     }
-    ensureCan(user, 'deployments.read', dep.environment.project);
+    await this.authz.ensureCan(
+      user,
+      'deployments.read',
+      dep.environment.project,
+    );
 
     const target = name
       ? dep.services.find((s) => s.name === name)
@@ -462,7 +502,11 @@ export class DeploymentsController {
     if (!dep || dep.environment.project.deletedAt) {
       throw new NotFoundException();
     }
-    ensureCan(user, 'deployments.read', dep.environment.project);
+    await this.authz.ensureCan(
+      user,
+      'deployments.read',
+      dep.environment.project,
+    );
 
     const target = name
       ? dep.services.find((s) => s.name === name)
@@ -531,9 +575,11 @@ interface PublicMaintenanceAction {
 function maintenanceActionsFor(dep: DeploymentDetail): MaintenanceAction[] {
   const presets = FRAMEWORK_PRESETS[dep.framework ?? ''] ?? [];
 
-  const raw = (dep.environment.project.buildConfig as {
-    maintenanceActions?: unknown;
-  } | null)?.maintenanceActions;
+  const raw = (
+    dep.environment.project.buildConfig as {
+      maintenanceActions?: unknown;
+    } | null
+  )?.maintenanceActions;
   const parsed = MaintenanceActionsSchema.safeParse(raw);
   const custom = parsed.success ? parsed.data : [];
 

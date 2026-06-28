@@ -17,7 +17,7 @@ import type { Response } from 'express';
 import { Audit } from '../audit/audit.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { ensureCan } from '../common/authz';
+import { ensureSelf } from '../common/authz';
 import { Env } from '../config/env';
 import { GithubApiService } from '../github/github-api.service';
 import { ListReposDto } from './dto/list-repos.dto';
@@ -36,14 +36,14 @@ export class IntegrationsController {
 
   @Get()
   async list(@CurrentUser() user: User) {
-    ensureCan(user, 'integrations.read', { ownerId: user.id });
+    ensureSelf(user, user.id);
     return { connections: await this.githubOauth.listConnections(user.id) };
   }
 
   @Get('github/connect')
   @Audit('integrations.connect')
   githubConnect(@CurrentUser() user: User, @Res() res: Response): void {
-    ensureCan(user, 'integrations.connect', { ownerId: user.id });
+    ensureSelf(user, user.id);
     if (!this.githubOauth.isConfigured()) {
       throw new ServiceUnavailableException(
         'GitHub integration not configured',
@@ -60,7 +60,7 @@ export class IntegrationsController {
     @CurrentUser() user: User,
     @Res() res: Response,
   ): Promise<void> {
-    ensureCan(user, 'integrations.connect', { ownerId: user.id });
+    ensureSelf(user, user.id);
     const appUrl = this.config.get('PUBLIC_APP_URL', { infer: true });
     try {
       if (!code || !state) {
@@ -81,13 +81,13 @@ export class IntegrationsController {
   @HttpCode(HttpStatus.NO_CONTENT)
   @Audit('integrations.disconnect')
   async disconnectGithub(@CurrentUser() user: User): Promise<void> {
-    ensureCan(user, 'integrations.disconnect', { ownerId: user.id });
+    ensureSelf(user, user.id);
     await this.githubOauth.disconnect(user.id);
   }
 
   @Get('github/repos')
   async repos(@Query() query: ListReposDto, @CurrentUser() user: User) {
-    ensureCan(user, 'integrations.read', { ownerId: user.id });
+    ensureSelf(user, user.id);
     return this.github.listRepos(user.id, {
       search: query.search,
       page: query.page,

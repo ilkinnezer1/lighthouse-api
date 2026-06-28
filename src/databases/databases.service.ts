@@ -6,7 +6,6 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { DatabaseStatus, DatabaseType, Prisma } from '@prisma/client';
-import type { User } from '@prisma/client';
 import { OUTBOX_EVENT_TYPES } from '../outbox/outbox.constants';
 import { PrismaService } from '../prisma/prisma.service';
 import { BuildConfigSchema } from '../projects/dto/build-config.schema';
@@ -288,8 +287,10 @@ export class DatabasesService {
     });
   }
 
-  async listAllForOwner(
-    user: Pick<User, 'id' | 'role'>,
+  // Scoped to one org (the caller's resolved active/personal org); membership is
+  // validated by the controller via AuthzService.resolveScopeOrgId.
+  async listForOrg(
+    organizationId: string,
     opts: {
       limit?: number;
       cursor?: string;
@@ -306,7 +307,7 @@ export class DatabasesService {
         project: {
           deletedAt: null,
           id: opts.projectId,
-          ownerId: user.role === 'ADMIN' ? undefined : user.id,
+          organizationId,
         },
       },
     };
@@ -341,8 +342,8 @@ export class DatabasesService {
   }
 
   /**
-   * Public fields plus the environment → project → owner chain so the
-   * controller can authorize. Never includes `connSecretEnc`.
+   * Public fields plus the environment → project → org chain so the controller
+   * can authorize. Never includes `connSecretEnc`.
    */
   findByIdWithOwner(id: string) {
     return this.prisma.managedDatabase.findUnique({
@@ -351,7 +352,7 @@ export class DatabasesService {
         ...PUBLIC_SELECT,
         environment: {
           select: {
-            project: { select: { ownerId: true, deletedAt: true } },
+            project: { select: { organizationId: true, deletedAt: true } },
           },
         },
       },
@@ -359,8 +360,8 @@ export class DatabasesService {
   }
 
   /**
-   * Owner chain for a snapshot (snapshot → database → environment → project),
-   * for authorizing create-from-snapshot. Lives here rather than in
+   * Org chain for a snapshot (snapshot → database → environment → project), for
+   * authorizing create-from-snapshot. Lives here rather than in
    * SnapshotsService to avoid a circular module dependency.
    */
   findSnapshotWithOwner(snapshotId: string) {
@@ -372,7 +373,7 @@ export class DatabasesService {
           select: {
             environment: {
               select: {
-                project: { select: { ownerId: true, deletedAt: true } },
+                project: { select: { organizationId: true, deletedAt: true } },
               },
             },
           },

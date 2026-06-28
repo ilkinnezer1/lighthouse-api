@@ -14,6 +14,15 @@ import { AuditService } from './audit.service';
 
 const SENSITIVE_KEY_RE = /password|secret|token|hash/i;
 
+// A handler may attach extra audit detail that isn't derivable from params/body/
+// response (e.g. a project transfer's source org, gone after the update). Merged
+// into afterJson under `context`.
+declare module 'express' {
+  interface Request {
+    auditContext?: Record<string, unknown>;
+  }
+}
+
 @Injectable()
 export class AuditInterceptor implements NestInterceptor {
   constructor(
@@ -47,7 +56,12 @@ export class AuditInterceptor implements NestInterceptor {
         void this.audit.write({
           ...base,
           resourceId: this.extractResourceId(params, response),
-          afterJson: this.sanitize({ params, body, response }),
+          afterJson: this.sanitize({
+            params,
+            body,
+            response,
+            context: req.auditContext,
+          }),
         });
       }),
       catchError((err: unknown) => {
@@ -58,6 +72,7 @@ export class AuditInterceptor implements NestInterceptor {
             params,
             body,
             error: this.serializeError(err),
+            context: req.auditContext,
           }),
         });
         return throwError(() => err);

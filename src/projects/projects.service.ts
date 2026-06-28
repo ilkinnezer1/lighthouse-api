@@ -2,6 +2,7 @@ import {
   BadGatewayException,
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -177,6 +178,52 @@ export class ProjectsService {
       return await this.prisma.project.update({
         where: { id, deletedAt: null },
         data,
+      });
+    } catch (err) {
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2025'
+      ) {
+        throw new NotFoundException('Project not found');
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Re-anchor a project to a new org. The single-anchor design means everything
+   * under it (environments → deployments → databases → snapshots) resolves its
+   * org through the project, so this lone FK update moves the whole tree;
+   * `createdByUserId` (creator attribution + per-user namespace) is untouched.
+   * Caller authorizes both ends (`projects.transfer` source, `projects.create`
+   * dest); here we guard the destination itself.
+   */
+  async transfer(
+    userId: string,
+    projectId: string,
+    toOrgId: string,
+  ): Promise<ProjectWithEnvironments> {
+    const dest = await this.prisma.organization.findUnique({
+      where: { id: toOrgId },
+      select: { isPersonal: true },
+    });
+    if (!dest) {
+      throw new NotFoundException('Destination organization not found');
+    }
+
+    // Only a shared org — or the actor's OWN personal org — may receive a
+    // project; never let one be dumped into someone else's personal org.
+    if (dest.isPersonal && toOrgId !== (await this.authz.personalOrgId(userId))) {
+      throw new ForbiddenException(
+        'Cannot transfer into a personal organization you do not own',
+      );
+    }
+
+    try {
+      return await this.prisma.project.update({
+        where: { id: projectId, deletedAt: null },
+        data: { organizationId: toOrgId },
+        include: { environments: true },
       });
     } catch (err) {
       if (

@@ -27,6 +27,7 @@ export type Action =
   | 'snapshots.delete'
   // admin-level — Owner, Admin
   | 'projects.delete'
+  | 'projects.transfer'
   | 'members.manage'
   | 'audit.read'
   // owner-only — rename/delete org, transfer ownership
@@ -64,6 +65,7 @@ const WRITE_ACTIONS: Action[] = [
 
 const ADMIN_ACTIONS: Action[] = [
   'projects.delete',
+  'projects.transfer',
   'members.manage',
   'audit.read',
 ];

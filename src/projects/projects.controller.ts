@@ -13,17 +13,20 @@ import {
   Patch,
   Post,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import type { User } from '@prisma/client';
+import type { Request } from 'express';
 import { Audit } from '../audit/audit.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AuthzService } from '../authz/authz.service';
 import { CryptoService } from '../crypto/crypto.service';
 import { CreateProjectDto } from './dto/create-project.dto';
+import { TransferProjectDto } from './dto/transfer-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
-import { ProjectsService } from './projects.service';
+import { ProjectsService, type ProjectWithEnvironments } from './projects.service';
 import { generateSubdomain, isReservedSubdomain } from './util/subdomain';
 import { slugify } from './util/slug';
 
@@ -104,18 +107,7 @@ export class ProjectsController {
       throw new NotFoundException();
     }
     await this.authz.ensureCan(user, 'projects.read', project);
-
-    // tolerate an undecryptable secret (e.g. encrypted under a rotated key) so
-    // the detail page loads instead of 500-ing
-    let webhookSecret: string | null = null;
-    if (project.webhookSecretEnc) {
-      try {
-        webhookSecret = this.crypto.decrypt(project.webhookSecretEnc);
-      } catch {
-        webhookSecret = null;
-      }
-    }
-    return { ...project, webhookSecret };
+    return this.withWebhookSecret(project);
   }
 
   @Get(':id/branches')
@@ -165,5 +157,60 @@ export class ProjectsController {
     }
     await this.authz.ensureCan(user, 'projects.delete', existing);
     await this.projects.softDelete(id);
+  }
+
+  // Move a project to another org: "remove from source" + "add to destination",
+  // so both ends are authorized — Admin+ in the source (moving out affects the
+  // whole team), Member+ in the destination (bringing it in is like creating).
+  @Post(':id/transfer')
+  @Audit('projects.transfer')
+  async transfer(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: TransferProjectDto,
+    @CurrentUser() user: User,
+    @Req() req: Request,
+  ) {
+    const project = await this.projects.findById(id);
+    if (!project) {
+      throw new NotFoundException();
+    }
+    const fromOrgId = project.organizationId;
+
+    await this.authz.ensureCan(user, 'projects.transfer', {
+      organizationId: fromOrgId,
+    });
+
+    if (dto.organizationId === fromOrgId) {
+      throw new ConflictException('Project is already in that organization');
+    }
+
+    // Destination targeting mirrors create-project: `ensureCan` denies non-members
+    // of the destination org; the service then guards personal-org destinations.
+    await this.authz.ensureCan(user, 'projects.create', {
+      organizationId: dto.organizationId,
+    });
+
+    const updated = await this.projects.transfer(
+      user.id,
+      id,
+      dto.organizationId,
+    );
+
+    req.auditContext = { projectId: id, fromOrgId, toOrgId: dto.organizationId };
+    return this.withWebhookSecret(updated);
+  }
+
+  // tolerate an undecryptable secret (e.g. encrypted under a rotated key) so the
+  // detail page loads instead of 500-ing
+  private withWebhookSecret(project: ProjectWithEnvironments) {
+    let webhookSecret: string | null = null;
+    if (project.webhookSecretEnc) {
+      try {
+        webhookSecret = this.crypto.decrypt(project.webhookSecretEnc);
+      } catch {
+        webhookSecret = null;
+      }
+    }
+    return { ...project, webhookSecret };
   }
 }

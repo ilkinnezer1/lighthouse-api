@@ -11,6 +11,8 @@ const SNAP_SELECT = {
   storageKey: true,
   sizeBytes: true,
   errorSummary: true,
+  label: true,
+  isBaseline: true,
   createdAt: true,
 } satisfies Prisma.DatabaseSnapshotSelect;
 
@@ -108,6 +110,85 @@ export class SnapshotsService {
    * In-place rollback (7a): worker restores the snapshot blob back into the
    * same database it came from. Snapshot must be READY (blob exists).
    */
+  /**
+   * Name a snapshot, and optionally make it the database's baseline — the state
+   * `resetEnvironment` returns to. At most one baseline per database, so
+   * promoting one demotes the previous in the same transaction.
+   */
+  async setMeta(
+    snapshotId: string,
+    databaseId: string,
+    meta: { label?: string | null; isBaseline?: boolean },
+  ) {
+    // `sizeBytes` is BigInt, which Express cannot serialize — every read path
+    // has to go back through toDto, including this one.
+    if (meta.isBaseline === true) {
+      const [, updated] = await this.prisma.$transaction([
+        this.prisma.databaseSnapshot.updateMany({
+          where: { databaseId, isBaseline: true, NOT: { id: snapshotId } },
+          data: { isBaseline: false },
+        }),
+        this.prisma.databaseSnapshot.update({
+          where: { id: snapshotId },
+          data: meta,
+          select: SNAP_SELECT,
+        }),
+      ]);
+      return toDto(updated);
+    }
+    const updated = await this.prisma.databaseSnapshot.update({
+      where: { id: snapshotId },
+      data: meta,
+      select: SNAP_SELECT,
+    });
+    return toDto(updated);
+  }
+
+  /**
+   * Restore every database in the environment to its baseline snapshot — the
+   * "give me a clean environment" button. Databases without a baseline, or not
+   * READY, are reported back rather than silently ignored, so a partial reset
+   * never looks like a complete one.
+   */
+  async resetEnvironment(environmentId: string, userId: string) {
+    const databases = await this.prisma.managedDatabase.findMany({
+      where: { environmentId },
+      select: {
+        id: true,
+        name: true,
+        status: true,
+        snapshots: {
+          where: { isBaseline: true },
+          select: { id: true, status: true, label: true },
+          take: 1,
+        },
+      },
+    });
+
+    const restored: { database: string; snapshotId: string }[] = [];
+    const skipped: { database: string; reason: string }[] = [];
+
+    for (const db of databases) {
+      const baseline = db.snapshots[0];
+      if (!baseline) {
+        skipped.push({ database: db.name, reason: 'no baseline snapshot' });
+        continue;
+      }
+      if (baseline.status !== 'READY') {
+        skipped.push({ database: db.name, reason: 'baseline is not READY' });
+        continue;
+      }
+      if (db.status !== 'READY') {
+        skipped.push({ database: db.name, reason: 'database is not READY' });
+        continue;
+      }
+      await this.restore(baseline.id, db.id, userId);
+      restored.push({ database: db.name, snapshotId: baseline.id });
+    }
+
+    return { restored, skipped };
+  }
+
   async restore(snapshotId: string, databaseId: string, userId: string) {
     await this.prisma.eventOutbox.create({
       data: {

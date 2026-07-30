@@ -80,11 +80,17 @@ model DatabaseSnapshot {
   sizeBytes    BigInt?        @map("size_bytes")
   errorSummary String?        @map("error_summary")
 
+  // QA affordances: a human name, and the one snapshot an environment resets
+  // back to. At most one baseline per database, enforced in the service.
+  label      String?
+  isBaseline Boolean @default(false) @map("is_baseline")
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
   // New DBs provisioned by restoring this snapshot (mode 4).
   seededDatabases ManagedDatabase[] @relation("SnapshotSeed")
 
   @@index([databaseId, createdAt(sort: Desc)])
+  @@index([databaseId, isBaseline])
   @@map("database_snapshots")
 }

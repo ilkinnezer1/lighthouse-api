@@ -7,8 +7,10 @@ import {
   HttpCode,
   HttpStatus,
   NotFoundException,
+  Body,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   UseGuards,
 } from '@nestjs/common';
@@ -18,6 +20,8 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AuthzService } from '../authz/authz.service';
 import { DatabasesService } from '../databases/databases.service';
+import { UpdateSnapshotDto } from './dto/update-snapshot.dto';
+import { PrismaService } from '../prisma/prisma.service';
 import { SnapshotsService } from './snapshots.service';
 
 @Controller()
@@ -27,6 +31,7 @@ export class SnapshotsController {
     private readonly snapshots: SnapshotsService,
     private readonly databases: DatabasesService,
     private readonly authz: AuthzService,
+    private readonly prisma: PrismaService,
   ) {}
 
   @Post('databases/:id/snapshots')
@@ -92,6 +97,46 @@ export class SnapshotsController {
       throw new ConflictException('Target database is not READY');
     }
     await this.snapshots.restore(id, snap.databaseId, user.id);
+  }
+
+  // Name a snapshot, or promote it to the environment's reset point.
+  @Patch('snapshots/:id')
+  @Audit('snapshots.update')
+  async update(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: UpdateSnapshotDto,
+    @CurrentUser() user: User,
+  ) {
+    const snap = await this.snapshots.findByIdWithOwner(id);
+    if (!snap || snap.database.environment.project.deletedAt) {
+      throw new NotFoundException();
+    }
+    await this.authz.ensureCan(
+      user,
+      'snapshots.create',
+      snap.database.environment.project,
+    );
+    if (dto.isBaseline === true && snap.status !== 'READY') {
+      throw new ConflictException('Only a READY snapshot can be the baseline');
+    }
+    return this.snapshots.setMeta(id, snap.databaseId, dto);
+  }
+
+  // One click back to a known-good state — the QA reset button.
+  @Post('environments/:envId/reset')
+  @HttpCode(HttpStatus.ACCEPTED)
+  @Audit('environments.reset')
+  async reset(
+    @Param('envId', new ParseUUIDPipe()) envId: string,
+    @CurrentUser() user: User,
+  ) {
+    const env = await this.prisma.environment.findUnique({
+      where: { id: envId },
+      select: { id: true, project: true },
+    });
+    if (!env || env.project.deletedAt) throw new NotFoundException();
+    await this.authz.ensureCan(user, 'snapshots.restore', env.project);
+    return this.snapshots.resetEnvironment(envId, user.id);
   }
 
   @Delete('snapshots/:id')

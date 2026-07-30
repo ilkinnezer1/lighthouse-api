@@ -69,6 +69,7 @@ model Environment {
   deployments      Deployment[]
   managedDatabases ManagedDatabase[]
   managedFiles     ManagedFile[]
+  scheduledTasks   ScheduledTask[]
 
   @@unique([projectId, name])
   @@index([projectId])

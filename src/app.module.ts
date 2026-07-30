@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
+import { ScheduledTasksModule } from './scheduled-tasks/scheduled-tasks.module';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -41,6 +42,7 @@ import { WsModule } from './ws/ws.module';
       throttlers: [{ name: 'default', ttl: 60_000, limit: 100 }],
     }),
     ScheduleModule.forRoot(),
+    ScheduledTasksModule,
     PrismaModule,
     RedisModule,
     AuthzModule,

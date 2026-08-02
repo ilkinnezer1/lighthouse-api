@@ -1,0 +1,74 @@
+// Models: NotificationChannel, NotificationDelivery. Enums: NotificationKind,
+// DeliveryStatus.
+//
+// Channels are org-scoped: a team wants "tell #deploys when anything here
+// ships", not one config per project.
+//
+// NotificationDelivery exists because the outbox cannot be replayed. Its drain
+// marks `drained_at` globally, so once an event is drained it is gone from the
+// poller — a failed webhook POST would be lost forever. The delivery row is both
+// the retry record and the dedupe key for the outbox's at-least-once redelivery.
+
+enum NotificationKind {
+  SLACK
+  DISCORD
+  WEBHOOK
+}
+
+enum DeliveryStatus {
+  PENDING
+  SENT
+  FAILED // retryable; the sweeper picks these up
+  DEAD // gave up after maxAttempts
+}
+
+model NotificationChannel {
+  id           String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orgId        String       @map("org_id") @db.Uuid
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  name String
+  kind NotificationKind
+
+  // AES-256-GCM JSON blob, same layout as every other secret in the platform.
+  // A Slack/Discord webhook URL is a bearer credential — anyone holding it can
+  // post as the integration — so it is never stored in plain text.
+  configEnc String @map("config_enc")
+
+  enabled Boolean @default(true)
+  // Canonical event names this channel wants (see notifications.constants.ts).
+  // Empty means every event the notifier knows about.
+  events String[] @default([])
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  deliveries NotificationDelivery[]
+
+  @@index([orgId])
+  @@map("notification_channels")
+}
+
+model NotificationDelivery {
+  id        String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  channelId String              @map("channel_id") @db.Uuid
+  channel   NotificationChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  // event_outbox.id as text. The outbox is at-least-once, so this pair is what
+  // stops a redelivered event from posting the same message twice.
+  eventId String @map("event_id")
+  event   String
+
+  status   DeliveryStatus @default(PENDING)
+  attempts Int            @default(0)
+  lastError String?       @map("last_error")
+  // Set on failure with backoff; the sweeper only picks up rows that are due.
+  nextAttemptAt DateTime? @map("next_attempt_at") @db.Timestamptz(3)
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  sentAt    DateTime? @map("sent_at") @db.Timestamptz(3)
+
+  @@unique([eventId, channelId])
+  @@index([status, nextAttemptAt])
+  @@map("notification_deliveries")
+}

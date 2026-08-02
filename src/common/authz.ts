@@ -30,6 +30,8 @@ export type Action =
   | 'projects.transfer'
   | 'members.manage'
   | 'audit.read'
+  | 'notifications.read'
+  | 'notifications.manage'
   // owner-only — rename/delete org, transfer ownership
   | 'org.update'
   | 'org.delete'
@@ -63,11 +65,16 @@ const WRITE_ACTIONS: Action[] = [
   'snapshots.delete',
 ];
 
+// Notification channels hold a webhook URL, which is a bearer credential for
+// posting into someone's Slack — so both reading and managing them are
+// admin-level, not a Member write.
 const ADMIN_ACTIONS: Action[] = [
   'projects.delete',
   'projects.transfer',
   'members.manage',
   'audit.read',
+  'notifications.read',
+  'notifications.manage',
 ];
 
 const OWNER_ACTIONS: Action[] = ['org.update', 'org.delete', 'org.transfer'];

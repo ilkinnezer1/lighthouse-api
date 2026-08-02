@@ -33,6 +33,7 @@ model Organization {
   memberships OrgMembership[]
   invitations OrgInvitation[]
   projects    Project[]
+  notificationChannels NotificationChannel[]
 
   @@map("organizations")
 }

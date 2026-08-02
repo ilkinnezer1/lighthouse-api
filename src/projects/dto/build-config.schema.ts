@@ -36,6 +36,30 @@ export const SetupStepSchema = z
 
 export type SetupStep = z.infer<typeof SetupStepSchema>;
 
+// A named volume that outlives a redeploy. The name is scoped to the
+// environment by the worker, so production and preview never share data.
+export const VolumeSchema = z
+  .object({
+    name: z
+      .string()
+      .regex(
+        /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$/,
+        'volume name must be alphanumeric and may contain _ . -',
+      ),
+    path: z
+      .string()
+      .min(2)
+      .max(255)
+      .refine((p) => p.startsWith('/'), 'mount path must be absolute')
+      .refine(
+        (p) => !p.split('/').includes('..'),
+        'mount path must not contain a ".." segment',
+      ),
+  })
+  .strict();
+
+export type Volume = z.infer<typeof VolumeSchema>;
+
 export const BuildConfigSchema = z
   .object({
     strategy: z
@@ -57,6 +81,7 @@ export const BuildConfigSchema = z
     // applied to single-container strategies only, not compose.
     cpuLimit: z.number().positive().max(64).optional(),
     memoryMb: z.number().int().min(64).max(131072).optional(),
+    volumes: z.array(VolumeSchema).max(20).optional(),
     // Cloud Native Buildpacks builder for strategy 'buildpacks': the presets
     // 'heroku' and 'paketo', or any builder image reference passed through as-is.
     builder: z.string().min(1).max(255).optional(),

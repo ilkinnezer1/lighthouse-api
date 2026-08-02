@@ -30,7 +30,7 @@ type EnvForUrl = {
   customDomain: string | null;
   project: {
     subdomain: string;
-    owner: { username: string };
+    organization: { slug: string };
   };
 };
 
@@ -172,7 +172,10 @@ export class DeploymentsService {
           environment: {
             include: {
               project: {
-                include: { owner: { select: { username: true } } },
+                include: {
+                  owner: { select: { username: true } },
+                  organization: { select: { slug: true } },
+                },
               },
             },
           },
@@ -247,6 +250,7 @@ export class DeploymentsService {
                 name: true,
                 subdomain: true,
                 owner: { select: { username: true } },
+                organization: { select: { slug: true } },
               },
             },
           },
@@ -272,6 +276,7 @@ export class DeploymentsService {
           select: {
             subdomain: true,
             owner: { select: { username: true } },
+            organization: { select: { slug: true } },
           },
         },
       },
@@ -297,7 +302,10 @@ export class DeploymentsService {
         environment: {
           include: {
             project: {
-              include: { owner: { select: { username: true } } },
+              include: {
+                owner: { select: { username: true } },
+                organization: { select: { slug: true } },
+              },
             },
           },
         },
@@ -352,7 +360,7 @@ export class DeploymentsService {
     return buildDeployUrl({
       mode: this.config.get('MODE', { infer: true }),
       baseDomain: this.config.get('BASE_DOMAIN', { infer: true }),
-      username: env.project.owner.username,
+      identity: env.project.organization.slug,
       projectSubdomain: env.project.subdomain,
       envSubdomain: env.subdomain,
       customDomain: env.customDomain,

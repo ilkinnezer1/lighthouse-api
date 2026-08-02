@@ -38,7 +38,9 @@ export type SetupStep = z.infer<typeof SetupStepSchema>;
 
 export const BuildConfigSchema = z
   .object({
-    strategy: z.enum(['dockerfile', 'compose', 'sandbox-yml']).optional(),
+    strategy: z
+      .enum(['dockerfile', 'compose', 'sandbox-yml', 'nixpacks'])
+      .optional(),
     web: z.string().min(1).optional(),
     cmd: z.array(z.string()).optional(),
     envs: z.record(z.string(), z.string()).optional(),
@@ -48,6 +50,10 @@ export const BuildConfigSchema = z
     maintenanceActions: MaintenanceActionsSchema.optional(),
     composePath: composePathSchema.optional(),
     setupSteps: z.array(SetupStepSchema).optional(),
+    buildCommand: z.string().min(1).max(1000).optional(),
+    startCommand: z.string().min(1).max(1000).optional(),
+    runtimeVersion: z.string().min(1).max(100).optional(),
+    rootDir: z.string().min(1).max(255).optional(),
   })
   .strict();
 

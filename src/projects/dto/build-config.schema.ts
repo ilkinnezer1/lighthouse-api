@@ -39,8 +39,28 @@ export type SetupStep = z.infer<typeof SetupStepSchema>;
 export const BuildConfigSchema = z
   .object({
     strategy: z
-      .enum(['dockerfile', 'compose', 'sandbox-yml', 'nixpacks'])
+      .enum([
+        'dockerfile',
+        'compose',
+        'generated',
+        'nixpacks',
+        'buildpacks',
+        'railpack',
+        'image',
+      ])
       .optional(),
+    // Required by strategy 'image': the registry ref to pull instead of building.
+    image: z.string().min(1).max(255).optional(),
+    // Port the container listens on, and the port Traefik routes to.
+    port: z.number().int().min(1).max(65535).optional(),
+    // Per-container limits. cpuLimit is in cores (0.5 = half a core); both are
+    // applied to single-container strategies only, not compose.
+    cpuLimit: z.number().positive().max(64).optional(),
+    memoryMb: z.number().int().min(64).max(131072).optional(),
+    // Cloud Native Buildpacks builder for strategy 'buildpacks': the presets
+    // 'heroku' and 'paketo', or any builder image reference passed through as-is.
+    builder: z.string().min(1).max(255).optional(),
+    buildpacks: z.array(z.string().min(1).max(255)).max(20).optional(),
     web: z.string().min(1).optional(),
     cmd: z.array(z.string()).optional(),
     envs: z.record(z.string(), z.string()).optional(),

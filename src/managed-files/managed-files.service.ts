@@ -26,6 +26,9 @@ export interface FileTreeEntry {
 export interface FileTreeView {
   entries: FileTreeEntry[];
   truncated?: boolean;
+  // The deployment left no source on disk to browse — an image deploy skips the
+  // clone entirely, and an old workdir may have been reaped. Not an error.
+  noSource?: boolean;
 }
 
 export interface FileContentView {
@@ -115,9 +118,17 @@ export class ManagedFilesService {
       return { entries: [] };
     }
 
-    const worker = await this.fetchWorker<WorkerTreeResponse>(
-      `/deployments/${deploymentId}/files/tree`,
-    );
+    let worker: WorkerTreeResponse;
+    try {
+      worker = await this.fetchWorker<WorkerTreeResponse>(
+        `/deployments/${deploymentId}/files/tree`,
+      );
+    } catch (err) {
+      if (err instanceof NotFoundException) {
+        return { entries: [], noSource: true };
+      }
+      throw err;
+    }
 
     const overrides = new Set(
       (

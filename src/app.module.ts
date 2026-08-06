@@ -27,6 +27,7 @@ import { EnvVarsModule } from './env-vars/env-vars.module';
 import { ManagedFilesModule } from './managed-files/managed-files.module';
 import { VolumesModule } from './volumes/volumes.module';
 import { TemplatesModule } from './templates/templates.module';
+import { DomainsModule } from './domains/domains.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { SnapshotsModule } from './snapshots/snapshots.module';
 import { DeploymentsModule } from './deployments/deployments.module';
@@ -61,6 +62,7 @@ import { WsModule } from './ws/ws.module';
     ManagedFilesModule,
     VolumesModule,
     TemplatesModule,
+    DomainsModule,
     NotificationsModule,
     SnapshotsModule,
     DeploymentsModule,

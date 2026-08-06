@@ -56,7 +56,10 @@ model Environment {
   type         EnvironmentType
   branch       String? // nullable for type=MANUAL
   subdomain    String // usually = name
-  customDomain String?         @map("custom_domain") // CNAME validation in Phase 3
+  // Unique so two environments can't claim the same host: Traefik would get two
+  // routers with an identical Host rule and pick between them arbitrarily.
+  // Nullable, and Postgres allows many NULLs, so unset environments are fine.
+  customDomain String?         @unique @map("custom_domain")
   prNumber     Int?            @map("pr_number")
 
   // AES-256-GCM ciphertext of a single JSON blob: { "KEY": "value", ... }

@@ -11,8 +11,13 @@ import {
   FIELD_JOB_TYPE,
   FIELD_SNAPSHOT_ID,
   TEARDOWN_QUEUE_STREAM,
+  VOLUME_BACKUP_JOB_TYPES,
+  VOLUME_BACKUP_QUEUE_STREAM,
+  FIELD_BACKUP_ID,
+  FIELD_STORAGE_KEY,
   cancelChannel,
   type DatabaseJobType,
+  type VolumeBackupJobType,
 } from './queue.constants';
 
 @Injectable()
@@ -97,6 +102,48 @@ export class QueueService {
       databaseId,
       snapshotId,
     );
+  }
+
+  enqueueVolumeBackup(backupId: string): Promise<string> {
+    return this.enqueueVolumeBackupJob(VOLUME_BACKUP_JOB_TYPES.Backup, backupId);
+  }
+
+  enqueueVolumeRestore(backupId: string): Promise<string> {
+    return this.enqueueVolumeBackupJob(VOLUME_BACKUP_JOB_TYPES.Restore, backupId);
+  }
+
+  // The archive key travels with the job so the API can drop the row straight
+  // away; re-reading it in the worker would race that delete.
+  enqueueVolumeBackupDelete(
+    backupId: string,
+    storageKey: string | null,
+  ): Promise<string> {
+    return this.enqueueVolumeBackupJob(
+      VOLUME_BACKUP_JOB_TYPES.Delete,
+      backupId,
+      storageKey,
+    );
+  }
+
+  private async enqueueVolumeBackupJob(
+    type: VolumeBackupJobType,
+    backupId: string,
+    storageKey?: string | null,
+  ): Promise<string> {
+    const fields: string[] = [FIELD_JOB_TYPE, type, FIELD_BACKUP_ID, backupId];
+    if (storageKey) {
+      fields.push(FIELD_STORAGE_KEY, storageKey);
+    }
+    const entryId = await this.redis.xadd(
+      VOLUME_BACKUP_QUEUE_STREAM,
+      '*',
+      ...fields,
+    );
+    if (!entryId) {
+      throw new Error('XADD returned no entry ID');
+    }
+    this.logger.debug(`enqueued ${type} ${backupId} as ${entryId}`);
+    return entryId;
   }
 
   private async enqueueDatabaseJob(

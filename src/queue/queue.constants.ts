@@ -38,3 +38,26 @@ export type DatabaseJobType =
 export const cancelChannel = (deploymentId: string): string => {
   return `cancel:deploy:${deploymentId}`;
 };
+
+/**
+ * Volume-backup work. Its own stream rather than a `jobs:database` job type,
+ * because those entries are keyed on `databaseId` and the worker's database
+ * router rejects an entry without one — a volume backup is keyed on an
+ * environment and a volume name instead.
+ */
+export const VOLUME_BACKUP_QUEUE_STREAM = 'jobs:volume-backup';
+
+export const FIELD_BACKUP_ID = 'backupId';
+export const FIELD_STORAGE_KEY = 'storageKey';
+
+/**
+ * `type` field values on `jobs:volume-backup` entries. Must match the worker's
+ * Go-side switch in internal/volumebackup/router.go.
+ */
+export const VOLUME_BACKUP_JOB_TYPES = {
+  Backup: 'volume_backup',
+  Restore: 'volume_restore',
+  Delete: 'volume_backup_delete',
+} as const;
+export type VolumeBackupJobType =
+  (typeof VOLUME_BACKUP_JOB_TYPES)[keyof typeof VOLUME_BACKUP_JOB_TYPES];

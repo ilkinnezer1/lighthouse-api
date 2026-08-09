@@ -74,6 +74,7 @@ model Environment {
   managedFiles     ManagedFile[]
   scheduledTasks   ScheduledTask[]
   volumeBackups    VolumeBackup[]
+  backupSchedules  BackupSchedule[]
 
   @@unique([projectId, name])
   @@index([projectId])
@@ -117,6 +118,10 @@ model VolumeBackup {
   sizeBytes    BigInt?        @map("size_bytes")
   errorSummary String?        @map("error_summary")
   label        String?
+
+  // Set only by a BackupSchedule. Retention prunes automatic backups and
+  // nothing else: a backup a person took deliberately is theirs to delete.
+  automatic Boolean @default(false)
 
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   completedAt DateTime? @map("completed_at") @db.Timestamptz(3)

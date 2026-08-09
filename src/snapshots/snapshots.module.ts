@@ -9,5 +9,6 @@ import { SnapshotsService } from './snapshots.service';
   imports: [AuthModule, DatabasesModule, QueueModule],
   controllers: [SnapshotsController],
   providers: [SnapshotsService],
+  exports: [SnapshotsService],
 })
 export class SnapshotsModule {}

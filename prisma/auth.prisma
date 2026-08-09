@@ -35,6 +35,8 @@ model User {
   deployments    Deployment[]    // deployments this user triggered
   outboxEvents   EventOutbox[]   // events targeted at this user
 
+  backupSchedules BackupSchedule[]
+
   memberships         OrgMembership[]
   sentInvitations     OrgInvitation[] @relation("OrgInvitationsSent")
   receivedInvitations OrgInvitation[] @relation("OrgInvitationsReceived")

@@ -50,18 +50,17 @@ export class VolumeBackupsService {
     environmentId: string,
     volumeName: string,
     label?: string,
+    automatic = false,
   ): Promise<VolumeBackupView> {
-    const declared = await this.declaredVolumes(environmentId);
-    if (!declared.includes(volumeName)) {
-      throw new BadRequestException(
-        declared.length === 0
-          ? 'This project declares no volumes; add one in build settings first'
-          : `Unknown volume "${volumeName}". Declared: ${declared.join(', ')}`,
-      );
-    }
+    await this.assertDeclared(environmentId, volumeName);
 
     const backup = await this.prisma.volumeBackup.create({
-      data: { environmentId, volumeName, label: label?.trim() || null },
+      data: {
+        environmentId,
+        volumeName,
+        label: label?.trim() || null,
+        automatic,
+      },
     });
     await this.queue.enqueueVolumeBackup(backup.id);
     return toView(backup);
@@ -96,6 +95,22 @@ export class VolumeBackupsService {
       throw new NotFoundException('Backup not found');
     }
     return backup;
+  }
+
+  /** Shared with backup schedules, so a schedule can't be saved against a
+   * volume the project never declares. */
+  async assertDeclared(
+    environmentId: string,
+    volumeName: string,
+  ): Promise<void> {
+    const declared = await this.declaredVolumes(environmentId);
+    if (!declared.includes(volumeName)) {
+      throw new BadRequestException(
+        declared.length === 0
+          ? 'This project declares no volumes; add one in build settings first'
+          : `Unknown volume "${volumeName}". Declared: ${declared.join(', ')}`,
+      );
+    }
   }
 
   private async declaredVolumes(environmentId: string): Promise<string[]> {

@@ -63,7 +63,8 @@ model ManagedDatabase {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  snapshots DatabaseSnapshot[] @relation("DatabaseSnapshots")
+  snapshots      DatabaseSnapshot[] @relation("DatabaseSnapshots")
+  backupSchedule BackupSchedule?
 
   @@unique([environmentId, name])
   @@index([environmentId])
@@ -84,6 +85,10 @@ model DatabaseSnapshot {
   // back to. At most one baseline per database, enforced in the service.
   label      String?
   isBaseline Boolean @default(false) @map("is_baseline")
+
+  // Set only by a BackupSchedule. Retention prunes automatic snapshots and
+  // nothing else: a snapshot a person took deliberately is theirs to delete.
+  automatic Boolean @default(false)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 

@@ -203,9 +203,12 @@ export class DatabasesService {
     if (!snap) {
       throw new NotFoundException('Snapshot not found');
     }
+    // Every engine can snapshot and restore in place; only seeding a *new*
+    // container from a snapshot is Postgres-only, because just provisionPostgres
+    // consumes seedFromSnapshotId.
     if (snap.database.type !== DatabaseType.POSTGRES) {
       throw new BadRequestException(
-        'Restore is only supported for POSTGRES databases',
+        `Creating a database from a snapshot is only supported for POSTGRES; restore a ${snap.database.type} snapshot into an existing database instead`,
       );
     }
     if (snap.status !== 'READY' || !snap.storageKey) {

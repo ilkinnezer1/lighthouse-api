@@ -1,0 +1,59 @@
+enum BackupTargetKind {
+  DATABASE
+  VOLUME
+}
+
+/// A recurring backup of one target.
+///
+/// Deliberately separate from ScheduledTask: that model executes a command in a
+/// service container and records a TaskRun with an exit code and output, none of
+/// which describes a backup. A backup already has a run record — the
+/// DatabaseSnapshot or VolumeBackup row, with its own status and errorSummary —
+/// so this model carries only the schedule, and the two share cron parsing
+/// rather than a table.
+model BackupSchedule {
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+
+  kind BackupTargetKind
+
+  // Set for both kinds. The sweep filters on environment type/active and authz
+  // resolves the owning project through it, so keeping it here makes both
+  // uniform instead of branching on the target.
+  environmentId String      @map("environment_id") @db.Uuid
+  environment   Environment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+
+  databaseId String?          @map("database_id") @db.Uuid
+  database   ManagedDatabase? @relation(fields: [databaseId], references: [id], onDelete: Cascade)
+
+  // The logical name from buildConfig.volumes[], matching VolumeBackup.
+  volumeName String? @map("volume_name")
+
+  schedule String // 5-field cron expression
+  timezone String  @default("UTC")
+  enabled  Boolean @default(true)
+
+  // How many READY backups to keep. Pruning runs after a scheduled backup is
+  // enqueued rather than at completion: the new backup is still PENDING, so it
+  // is neither counted nor at risk of being pruned.
+  keepLast Int @default(7) @map("keep_last")
+
+  // Runs are attributed to whoever set the schedule up — the outbox event needs
+  // an actor and an unattended run has no session.
+  createdById String @map("created_by_id") @db.Uuid
+  createdBy   User   @relation(fields: [createdById], references: [id], onDelete: Cascade)
+
+  lastRunAt DateTime? @map("last_run_at") @db.Timestamptz(3)
+  // Precomputed so the every-minute sweep is an indexed lookup rather than
+  // parsing every cron expression in the table on each tick.
+  nextRunAt DateTime? @map("next_run_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  // One schedule per target: two schedules on one target would each prune to
+  // their own keepLast and fight over the same backups.
+  @@unique([databaseId])
+  @@unique([environmentId, volumeName])
+  @@index([enabled, nextRunAt])
+  @@map("backup_schedules")
+}

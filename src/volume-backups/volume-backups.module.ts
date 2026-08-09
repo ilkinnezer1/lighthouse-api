@@ -8,5 +8,6 @@ import { VolumeBackupsService } from './volume-backups.service';
   imports: [AuthModule, QueueModule],
   controllers: [VolumeBackupsController],
   providers: [VolumeBackupsService],
+  exports: [VolumeBackupsService],
 })
 export class VolumeBackupsModule {}

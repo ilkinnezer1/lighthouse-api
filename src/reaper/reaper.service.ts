@@ -142,4 +142,36 @@ export class ReaperService {
       }
     }
   }
+
+  /**
+   * And for volume backups, which had no sweep at all: a worker that died
+   * mid-tar left the row PENDING forever, and the UI polls a PENDING backup
+   * indefinitely waiting for an outcome that can no longer arrive.
+   */
+  @Cron(CronExpression.EVERY_MINUTE)
+  async reapStuckVolumeBackups(): Promise<void> {
+    const cutoff = new Date(Date.now() - PROVISION_THRESHOLD_MS);
+    const stale = await this.prisma.volumeBackup.findMany({
+      where: { status: 'PENDING', createdAt: { lt: cutoff } },
+      select: { id: true },
+    });
+    if (stale.length === 0) return;
+
+    for (const b of stale) {
+      try {
+        const won = await this.prisma.volumeBackup.updateMany({
+          where: { id: b.id, status: 'PENDING' },
+          data: {
+            status: 'FAILED',
+            errorSummary: 'backup timed out — worker presumed dead',
+          },
+        });
+        if (won.count > 0) {
+          this.logger.warn(`reaped volume backup ${b.id} as FAILED`);
+        }
+      } catch (err) {
+        this.logger.error(`failed to reap volume backup ${b.id}`, err);
+      }
+    }
+  }
 }

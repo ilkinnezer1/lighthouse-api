@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   ConflictException,
   Controller,
   Delete,
@@ -50,11 +49,6 @@ export class SnapshotsController {
       'snapshots.create',
       db.environment.project,
     );
-    if (db.type !== 'POSTGRES') {
-      throw new BadRequestException(
-        'Snapshots are only supported for POSTGRES databases',
-      );
-    }
     if (db.status !== 'READY') {
       throw new ConflictException('Database is not READY');
     }

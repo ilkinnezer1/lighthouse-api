@@ -44,10 +44,10 @@ export class SnapshotsService {
    * Insert a PENDING snapshot row and hand the worker a `pg_dump → MinIO` job.
    * The worker writes back storageKey/sizeBytes and flips status to READY.
    */
-  async create(databaseId: string, userId: string) {
+  async create(databaseId: string, userId: string, automatic = false) {
     const snap = await this.prisma.$transaction(async (tx) => {
       const s = await tx.databaseSnapshot.create({
-        data: { databaseId, status: 'PENDING' },
+        data: { databaseId, status: 'PENDING', automatic },
         select: SNAP_SELECT,
       });
       await tx.eventOutbox.create({
@@ -201,9 +201,9 @@ export class SnapshotsService {
   }
 
   /**
-   * Remove a snapshot. If the blob never materialized (PENDING, no storageKey)
-   * the row is deleted directly. Otherwise the worker removes the blob from
-   * MinIO and deletes the row — it reads storageKey from the row by id.
+   * Remove a snapshot: drop the row, then have the worker chase the blob. A
+   * snapshot that never materialized (PENDING, no storageKey) has no blob to
+   * chase.
    */
   async remove(snapshotId: string, userId: string): Promise<void> {
     const snap = await this.prisma.databaseSnapshot.findUnique({
@@ -214,20 +214,28 @@ export class SnapshotsService {
       throw new NotFoundException();
     }
 
-    if (snap.storageKey === null) {
-      await this.prisma.databaseSnapshot.delete({ where: { id: snapshotId } });
-      return;
-    }
+    // The row goes first, and the key travels on the job. The worker never
+    // deleted the row, so leaving it for the worker left every deleted snapshot
+    // in the list forever; re-reading it there would also race this delete.
+    await this.prisma.$transaction([
+      this.prisma.databaseSnapshot.delete({ where: { id: snapshotId } }),
+      this.prisma.eventOutbox.create({
+        data: {
+          type: OUTBOX_EVENT_TYPES.SnapshotDeleteQueued,
+          userId,
+          payload: { snapshotId, databaseId: snap.databaseId },
+        },
+      }),
+    ]);
 
-    await this.prisma.eventOutbox.create({
-      data: {
-        type: OUTBOX_EVENT_TYPES.SnapshotDeleteQueued,
-        userId,
-        payload: { snapshotId, databaseId: snap.databaseId },
-      },
-    });
+    if (snap.storageKey === null) return;
+
     try {
-      await this.queue.enqueueSnapshotDelete(snap.databaseId, snapshotId);
+      await this.queue.enqueueSnapshotDelete(
+        snap.databaseId,
+        snapshotId,
+        snap.storageKey,
+      );
     } catch (err) {
       this.logger.error(
         `enqueue snapshot delete failed for ${snapshotId}`,

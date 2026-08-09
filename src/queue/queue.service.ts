@@ -93,14 +93,18 @@ export class QueueService {
     );
   }
 
+  // Carries the storage key because the row is already gone by the time the
+  // worker picks this up — the same shape as enqueueVolumeBackupDelete.
   enqueueSnapshotDelete(
     databaseId: string,
     snapshotId: string,
+    storageKey: string | null,
   ): Promise<string> {
     return this.enqueueDatabaseJob(
       DATABASE_JOB_TYPES.SnapshotDelete,
       databaseId,
       snapshotId,
+      storageKey,
     );
   }
 
@@ -150,26 +154,21 @@ export class QueueService {
     type: DatabaseJobType,
     databaseId: string,
     snapshotId?: string,
+    storageKey?: string | null,
   ): Promise<string> {
-    const entryId = snapshotId
-      ? await this.redis.xadd(
-          DATABASE_QUEUE_STREAM,
-          '*',
-          FIELD_JOB_TYPE,
-          type,
-          FIELD_DATABASE_ID,
-          databaseId,
-          FIELD_SNAPSHOT_ID,
-          snapshotId,
-        )
-      : await this.redis.xadd(
-          DATABASE_QUEUE_STREAM,
-          '*',
-          FIELD_JOB_TYPE,
-          type,
-          FIELD_DATABASE_ID,
-          databaseId,
-        );
+    const fields: string[] = [
+      FIELD_JOB_TYPE,
+      type,
+      FIELD_DATABASE_ID,
+      databaseId,
+    ];
+    if (snapshotId) {
+      fields.push(FIELD_SNAPSHOT_ID, snapshotId);
+    }
+    if (storageKey) {
+      fields.push(FIELD_STORAGE_KEY, storageKey);
+    }
+    const entryId = await this.redis.xadd(DATABASE_QUEUE_STREAM, '*', ...fields);
 
     if (!entryId) {
       throw new Error('XADD returned no entry ID');

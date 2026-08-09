@@ -145,10 +145,16 @@ export class SnapshotsService {
   }
 
   /**
-   * Restore every database in the environment to its baseline snapshot — the
-   * "give me a clean environment" button. Databases without a baseline, or not
-   * READY, are reported back rather than silently ignored, so a partial reset
+   * Restore every database *and volume* in the environment to its baseline — the
+   * "give me a clean environment" button. Anything without a baseline, or not
+   * READY, is reported back rather than silently ignored, so a partial reset
    * never looks like a complete one.
+   *
+   * Volumes are here because leaving them out made the button lie. Since volumes
+   * began persisting across redeploys, an environment's state lives as much in
+   * uploaded files and SQLite data as in its databases; resetting only the
+   * databases handed back a "clean" environment still carrying the last test's
+   * data, which surfaces later as a mysterious failure.
    */
   async resetEnvironment(environmentId: string, userId: string) {
     const databases = await this.prisma.managedDatabase.findMany({
@@ -186,7 +192,55 @@ export class SnapshotsService {
       restored.push({ database: db.name, snapshotId: baseline.id });
     }
 
-    return { restored, skipped };
+    const volumes = await this.resetVolumes(environmentId);
+
+    return { restored, skipped, ...volumes };
+  }
+
+  /**
+   * The volume half of a reset. A volume restore stops whatever is using the
+   * volume and starts it again, so this costs a short outage — the same trade a
+   * single volume restore already makes, and the reason it is worth saying out
+   * loud in the UI rather than burying.
+   */
+  private async resetVolumes(environmentId: string) {
+    const baselines = await this.prisma.volumeBackup.findMany({
+      where: { environmentId, isBaseline: true },
+      select: { id: true, volumeName: true, status: true },
+      orderBy: { volumeName: 'asc' },
+    });
+
+    const volumesRestored: { volume: string; backupId: string }[] = [];
+    const volumesSkipped: { volume: string; reason: string }[] = [];
+
+    for (const baseline of baselines) {
+      if (baseline.status !== 'READY') {
+        volumesSkipped.push({
+          volume: baseline.volumeName,
+          reason: 'baseline is not READY',
+        });
+        continue;
+      }
+      try {
+        await this.queue.enqueueVolumeRestore(baseline.id);
+        volumesRestored.push({
+          volume: baseline.volumeName,
+          backupId: baseline.id,
+        });
+      } catch (err) {
+        // One volume failing to enqueue must not abandon the rest of the reset.
+        this.logger.error(
+          `enqueue volume restore failed for ${baseline.id}`,
+          err,
+        );
+        volumesSkipped.push({
+          volume: baseline.volumeName,
+          reason: 'could not be queued',
+        });
+      }
+    }
+
+    return { volumesRestored, volumesSkipped };
   }
 
   async restore(snapshotId: string, databaseId: string, userId: string) {

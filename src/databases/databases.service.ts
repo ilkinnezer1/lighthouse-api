@@ -5,7 +5,9 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { DatabaseStatus, DatabaseType, Prisma } from '@prisma/client';
+import type { Env } from '../config/env';
 import { OUTBOX_EVENT_TYPES } from '../outbox/outbox.constants';
 import { PrismaService } from '../prisma/prisma.service';
 import { BuildConfigSchema } from '../projects/dto/build-config.schema';
@@ -38,7 +40,55 @@ export class DatabasesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly queue: QueueService,
+    private readonly config: ConfigService<Env, true>,
   ) {}
+
+  /**
+   * Attach whether each database's container is actually running.
+   *
+   * `status` records how provisioning *ended*; nothing updates it when a
+   * container later stops, so a reboot leaves rows reading READY for databases
+   * nothing can connect to. This asks the worker — the only process that can see
+   * Docker — and reports the answer alongside the recorded status rather than
+   * overwriting it.
+   *
+   * `null` means "not known": the worker was unreachable, or the database is an
+   * attached one we do not run a container for. Never guess — a wrong "stopped"
+   * is the same class of lie as a wrong "ready".
+   */
+  async withContainerState<
+    T extends { id: string; ownsContainer: boolean },
+  >(rows: T[]): Promise<(T & { containerRunning: boolean | null })[]> {
+    const managed = rows.filter((r) => r.ownsContainer).map((r) => r.id);
+    const states = await this.containerStates(managed);
+    return rows.map((r) => ({
+      ...r,
+      containerRunning: states.has(r.id) ? states.get(r.id)! : null,
+    }));
+  }
+
+  private async containerStates(ids: string[]): Promise<Map<string, boolean>> {
+    if (ids.length === 0) return new Map();
+    const workerUrl = this.config.get('WORKER_HTTP_URL', { infer: true });
+    try {
+      const res = await fetch(
+        `${workerUrl}/databases/state?ids=${ids.join(',')}`,
+        // Bounded: this decorates a read, so a slow worker must not hold the
+        // response open — an unknown state degrades to null.
+        { signal: AbortSignal.timeout(3000) },
+      );
+      if (!res.ok) return new Map();
+      const body = (await res.json()) as Record<string, { running?: boolean }>;
+      return new Map(
+        Object.entries(body).map(([id, s]) => [id, Boolean(s?.running)]),
+      );
+    } catch (err) {
+      this.logger.warn(
+        `container state lookup failed: ${(err as Error).message}`,
+      );
+      return new Map();
+    }
+  }
 
   create(environmentId: string, userId: string, dto: CreateDatabaseDto) {
     switch (dto.mode) {
@@ -282,12 +332,13 @@ export class DatabasesService {
     );
   }
 
-  listByEnvironment(environmentId: string) {
-    return this.prisma.managedDatabase.findMany({
+  async listByEnvironment(environmentId: string) {
+    const rows = await this.prisma.managedDatabase.findMany({
       where: { environmentId },
       orderBy: { createdAt: 'desc' },
       select: PUBLIC_SELECT,
     });
+    return this.withContainerState(rows);
   }
 
   // Scoped to one org (the caller's resolved active/personal org); membership is

@@ -8,6 +8,7 @@ import {
   NotFoundException,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   UseGuards,
 } from '@nestjs/common';
@@ -19,6 +20,7 @@ import { AuthzService } from '../authz/authz.service';
 import type { Action } from '../common/authz';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateVolumeBackupDto } from './dto/create-volume-backup.dto';
+import { UpdateVolumeBackupDto } from './dto/update-volume-backup.dto';
 import { VolumeBackupsService } from './volume-backups.service';
 
 // Backups of persistent volumes. Gated on the existing `snapshots.*` actions
@@ -72,6 +74,23 @@ export class VolumeBackupsController {
     );
     await this.backups.restore(backupId);
     return { status: 'restoring' };
+  }
+
+  // Name a backup, or promote it to the environment's reset point.
+  @Patch('volume-backups/:backupId')
+  @Audit('volumes.backup-update')
+  async update(
+    @Param('backupId', new ParseUUIDPipe()) backupId: string,
+    @Body() dto: UpdateVolumeBackupDto,
+    @CurrentUser() user: User,
+  ) {
+    const backup = await this.backups.findOrThrow(backupId);
+    await this.authorizeEnvironment(
+      backup.environmentId,
+      user,
+      'snapshots.create',
+    );
+    return this.backups.setMeta(backupId, dto);
   }
 
   @Delete('volume-backups/:backupId')

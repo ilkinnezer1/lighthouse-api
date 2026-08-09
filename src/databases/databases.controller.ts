@@ -128,7 +128,8 @@ export class DatabasesController {
       throw new NotFoundException();
     }
     await this.authz.ensureCan(user, 'databases.read', environment.project);
-    return rest;
+    const [withState] = await this.databases.withContainerState([rest]);
+    return withState;
   }
 
   @Delete('databases/:id')

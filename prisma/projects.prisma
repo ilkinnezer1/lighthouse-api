@@ -123,6 +123,12 @@ model VolumeBackup {
   // nothing else: a backup a person took deliberately is theirs to delete.
   automatic Boolean @default(false)
 
+  // The state "Reset data" returns this volume to. At most one baseline per
+  // volume, enforced in the service, exactly as DatabaseSnapshot does — a reset
+  // that restored databases but left volume contents alone was reporting a
+  // clean environment it had not actually produced.
+  isBaseline Boolean @default(false) @map("is_baseline")
+
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   completedAt DateTime? @map("completed_at") @db.Timestamptz(3)
 

@@ -19,6 +19,8 @@ export interface VolumeBackupView {
   sizeBytes: number | null;
   errorSummary: string | null;
   label: string | null;
+  automatic: boolean;
+  isBaseline: boolean;
   createdAt: Date;
   completedAt: Date | null;
 }
@@ -64,6 +66,45 @@ export class VolumeBackupsService {
     });
     await this.queue.enqueueVolumeBackup(backup.id);
     return toView(backup);
+  }
+
+  /**
+   * Name a backup, or promote it to the volume's reset point.
+   *
+   * At most one baseline per volume, so promoting one demotes the previous in
+   * the same transaction — the same rule DatabaseSnapshot follows, for the same
+   * reason: "Reset data" has to have exactly one answer per target.
+   */
+  async setMeta(
+    backupId: string,
+    meta: { label?: string | null; isBaseline?: boolean },
+  ): Promise<VolumeBackupView> {
+    const backup = await this.findOrThrow(backupId);
+
+    if (meta.isBaseline === true) {
+      if (backup.status !== 'READY') {
+        throw new ConflictException('Only a READY backup can be the baseline');
+      }
+      const [, updated] = await this.prisma.$transaction([
+        this.prisma.volumeBackup.updateMany({
+          where: {
+            environmentId: backup.environmentId,
+            volumeName: backup.volumeName,
+            isBaseline: true,
+            NOT: { id: backupId },
+          },
+          data: { isBaseline: false },
+        }),
+        this.prisma.volumeBackup.update({ where: { id: backupId }, data: meta }),
+      ]);
+      return toView(updated);
+    }
+
+    const updated = await this.prisma.volumeBackup.update({
+      where: { id: backupId },
+      data: meta,
+    });
+    return toView(updated);
   }
 
   async restore(backupId: string): Promise<void> {
@@ -138,6 +179,8 @@ function toView(row: VolumeBackup): VolumeBackupView {
     sizeBytes: row.sizeBytes === null ? null : Number(row.sizeBytes),
     errorSummary: row.errorSummary,
     label: row.label,
+    automatic: row.automatic,
+    isBaseline: row.isBaseline,
     createdAt: row.createdAt,
     completedAt: row.completedAt,
   };

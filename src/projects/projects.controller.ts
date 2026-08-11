@@ -26,7 +26,10 @@ import { CryptoService } from '../crypto/crypto.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { TransferProjectDto } from './dto/transfer-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
-import { ProjectsService, type ProjectWithEnvironments } from './projects.service';
+import {
+  ProjectsService,
+  type ProjectWithEnvironments,
+} from './projects.service';
 import { generateSubdomain, isReservedSubdomain } from './util/subdomain';
 import { slugify } from './util/slug';
 
@@ -196,7 +199,11 @@ export class ProjectsController {
       dto.organizationId,
     );
 
-    req.auditContext = { projectId: id, fromOrgId, toOrgId: dto.organizationId };
+    req.auditContext = {
+      projectId: id,
+      fromOrgId,
+      toOrgId: dto.organizationId,
+    };
     return this.withWebhookSecret(updated);
   }
 

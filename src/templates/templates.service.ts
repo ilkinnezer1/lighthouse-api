@@ -1,4 +1,8 @@
-import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomBytes, randomInt, randomUUID } from 'node:crypto';
 import { buildDeployUrl } from '../common/url';
@@ -6,7 +10,10 @@ import type { Env } from '../config/env';
 import { DeploymentsService } from '../deployments/deployments.service';
 import { EnvVarsService } from '../env-vars/env-vars.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { ProjectsService, type ProjectWithEnvironments } from '../projects/projects.service';
+import {
+  ProjectsService,
+  type ProjectWithEnvironments,
+} from '../projects/projects.service';
 import { slugify } from '../projects/util/slug';
 import { generateSubdomain } from '../projects/util/subdomain';
 import type { InstantiateTemplateDto } from './dto/instantiate-template.dto';
@@ -19,7 +26,8 @@ import type {
 
 const MAX_SUBDOMAIN_TRIES = 5;
 // Ambiguous glyphs removed: these passwords get read off a screen and retyped.
-const PASSWORD_ALPHABET = 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const PASSWORD_ALPHABET =
+  'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 export interface InstantiateResult {
   project: ProjectWithEnvironments;
@@ -70,7 +78,11 @@ export class TemplatesService {
       buildConfig: buildConfigFor(spec),
     });
 
-    const url = await this.urlFor(project.id, project.subdomain, environment.subdomain);
+    const url = await this.urlFor(
+      project.id,
+      project.subdomain,
+      environment.subdomain,
+    );
     const vars = resolveEnv(spec, dto.env ?? {}, url);
     if (Object.keys(vars).length > 0) {
       await this.envVars.replace(environment.id, { vars });
@@ -119,7 +131,11 @@ export class TemplatesService {
         const isSubdomainConflict =
           err instanceof ConflictException &&
           err.message.toLowerCase().includes('subdomain');
-        if (isSubdomainConflict && !subdomainProvided && attempt < MAX_SUBDOMAIN_TRIES) {
+        if (
+          isSubdomainConflict &&
+          !subdomainProvided &&
+          attempt < MAX_SUBDOMAIN_TRIES
+        ) {
           continue;
         }
         throw err;
@@ -184,9 +200,14 @@ function buildConfigFor(spec: TemplateSpec): Record<string, unknown> {
  * straight through would turn "we made you a secret" into "we stored the one
  * you sent", which is a different security property than the UI advertises.
  */
-function assertEnvAnswerable(spec: TemplateSpec, supplied: Record<string, string>): void {
+function assertEnvAnswerable(
+  spec: TemplateSpec,
+  supplied: Record<string, string>,
+): void {
   const fields = spec.env ?? [];
-  const promptable = new Set(fields.filter((f) => !f.generate).map((f) => f.key));
+  const promptable = new Set(
+    fields.filter((f) => !f.generate).map((f) => f.key),
+  );
 
   const unknown = Object.keys(supplied).filter((k) => !promptable.has(k));
   if (unknown.length > 0) {
@@ -202,7 +223,9 @@ function assertEnvAnswerable(spec: TemplateSpec, supplied: Record<string, string
   for (const field of fields) {
     if (field.generate || !field.required) continue;
     if (!(supplied[field.key]?.trim() || field.default)) {
-      throw new BadRequestException(`Missing required value: ${field.label} (${field.key})`);
+      throw new BadRequestException(
+        `Missing required value: ${field.label} (${field.key})`,
+      );
     }
   }
 }

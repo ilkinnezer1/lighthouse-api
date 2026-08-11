@@ -150,10 +150,7 @@ export class ManagedFilesService {
     return { entries, truncated: worker.truncated };
   }
 
-  async content(
-    environmentId: string,
-    path: string,
-  ): Promise<FileContentView> {
+  async content(environmentId: string, path: string): Promise<FileContentView> {
     const override = await this.prisma.managedFile.findUnique({
       where: { environmentId_path: { environmentId, path } },
     });

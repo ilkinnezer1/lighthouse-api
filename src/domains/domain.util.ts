@@ -39,7 +39,9 @@ export function assertValidDomain(domain: string, baseDomain: string): void {
 
   const labels = domain.split('.');
   if (labels.length < 2) {
-    throw new BadRequestException('Use a fully qualified domain, e.g. app.example.com');
+    throw new BadRequestException(
+      'Use a fully qualified domain, e.g. app.example.com',
+    );
   }
   for (const label of labels) {
     if (!LABEL.test(label)) {

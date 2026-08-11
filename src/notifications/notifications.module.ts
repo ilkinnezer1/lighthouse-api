@@ -9,7 +9,11 @@ import { NotificationsService } from './notifications.service';
 @Module({
   imports: [AuthModule, OutboxModule],
   controllers: [NotificationsController],
-  providers: [NotificationsService, NotificationDispatcher, NotificationsConsumer],
+  providers: [
+    NotificationsService,
+    NotificationDispatcher,
+    NotificationsConsumer,
+  ],
   exports: [NotificationsService],
 })
 export class NotificationsModule {}

@@ -110,9 +110,7 @@ export class BackupSchedulesService {
       // A database that is provisioning or torn down is not an error worth
       // failing on — the next slot will find it ready.
       if (!db || db.status !== 'READY') {
-        this.logger.warn(
-          `schedule ${schedule.id} skipped: database not READY`,
-        );
+        this.logger.warn(`schedule ${schedule.id} skipped: database not READY`);
         return;
       }
       await this.snapshots.create(
@@ -201,7 +199,9 @@ export class BackupSchedulesService {
   ): Promise<void> {
     if (dto.kind === 'DATABASE') {
       if (!dto.databaseId) {
-        throw new BadRequestException('databaseId is required for kind=DATABASE');
+        throw new BadRequestException(
+          'databaseId is required for kind=DATABASE',
+        );
       }
       const db = await this.prisma.managedDatabase.findUnique({
         where: { id: dto.databaseId },

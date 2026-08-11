@@ -1,13 +1,16 @@
 import { Transform } from 'class-transformer';
 import { IsBoolean, IsOptional, IsUUID } from 'class-validator';
 
+const toBoolean = ({ value }: { value: unknown }): unknown =>
+  value === 'true' ? true : value === 'false' ? false : value;
+
 export class ListScheduledTasksDto {
   @IsOptional()
   @IsUUID()
   projectId?: string;
 
   @IsOptional()
-  @Transform(({ value }) => (value === 'true' ? true : value === 'false' ? false : value))
+  @Transform(toBoolean)
   @IsBoolean()
   enabled?: boolean;
 

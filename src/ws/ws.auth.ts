@@ -1,5 +1,5 @@
 import { UnauthorizedException } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
+import type { JwtService } from '@nestjs/jwt';
 import type { User } from '@prisma/client';
 import type { Socket } from 'socket.io';
 import type { JwtPayload } from '../auth/auth.service';

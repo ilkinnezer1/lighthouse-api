@@ -213,7 +213,10 @@ export class ProjectsService {
 
     // Only a shared org — or the actor's OWN personal org — may receive a
     // project; never let one be dumped into someone else's personal org.
-    if (dest.isPersonal && toOrgId !== (await this.authz.personalOrgId(userId))) {
+    if (
+      dest.isPersonal &&
+      toOrgId !== (await this.authz.personalOrgId(userId))
+    ) {
       throw new ForbiddenException(
         'Cannot transfer into a personal organization you do not own',
       );

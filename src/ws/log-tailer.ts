@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { Redis } from 'ioredis';
-import { LogEmitter, toLogEntry } from './log-entry';
+import type { LogEmitter } from './log-entry';
+import { toLogEntry } from './log-entry';
 import { logsStreamKey, XREAD_BLOCK_MS } from './ws.constants';
 
 // One per active deployment. Tails Redis Stream `deploy:{id}:logs` and

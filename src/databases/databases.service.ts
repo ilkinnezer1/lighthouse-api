@@ -56,9 +56,9 @@ export class DatabasesService {
    * attached one we do not run a container for. Never guess — a wrong "stopped"
    * is the same class of lie as a wrong "ready".
    */
-  async withContainerState<
-    T extends { id: string; ownsContainer: boolean },
-  >(rows: T[]): Promise<(T & { containerRunning: boolean | null })[]> {
+  async withContainerState<T extends { id: string; ownsContainer: boolean }>(
+    rows: T[],
+  ): Promise<(T & { containerRunning: boolean | null })[]> {
     const managed = rows.filter((r) => r.ownsContainer).map((r) => r.id);
     const states = await this.containerStates(managed);
     return rows.map((r) => ({

@@ -96,7 +96,9 @@ export class BackupSchedulesController {
   ): Promise<void> {
     const env = await this.prisma.environment.findUnique({
       where: { id },
-      select: { project: { select: { organizationId: true, deletedAt: true } } },
+      select: {
+        project: { select: { organizationId: true, deletedAt: true } },
+      },
     });
     if (!env || env.project.deletedAt) {
       throw new NotFoundException('Environment not found');

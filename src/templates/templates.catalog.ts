@@ -29,7 +29,11 @@ export const TEMPLATE_CATALOG: TemplateSpec[] = [
     port: 5678,
     volumes: [{ name: 'data', path: '/home/node/.n8n' }],
     env: [
-      { key: 'N8N_ENCRYPTION_KEY', label: 'Encryption key', generate: 'secret32' },
+      {
+        key: 'N8N_ENCRYPTION_KEY',
+        label: 'Encryption key',
+        generate: 'secret32',
+      },
       { key: 'N8N_HOST', label: 'Host', generate: 'domain' },
       { key: 'WEBHOOK_URL', label: 'Webhook URL', generate: 'url' },
       {
@@ -130,7 +134,11 @@ export const TEMPLATE_CATALOG: TemplateSpec[] = [
     port: 3000,
     volumes: [{ name: 'data', path: '/metabase-data' }],
     env: [
-      { key: 'MB_DB_FILE', label: 'Internal database file', default: '/metabase-data/metabase.db' },
+      {
+        key: 'MB_DB_FILE',
+        label: 'Internal database file',
+        default: '/metabase-data/metabase.db',
+      },
     ],
     memoryMb: 2048,
     postInstall:
@@ -148,7 +156,11 @@ export const TEMPLATE_CATALOG: TemplateSpec[] = [
     port: 3000,
     volumes: [{ name: 'data', path: '/var/lib/grafana' }],
     env: [
-      { key: 'GF_SECURITY_ADMIN_PASSWORD', label: 'Admin password', generate: 'password' },
+      {
+        key: 'GF_SECURITY_ADMIN_PASSWORD',
+        label: 'Admin password',
+        generate: 'password',
+      },
       { key: 'GF_SERVER_ROOT_URL', label: 'Root URL', generate: 'url' },
     ],
     postInstall:
@@ -182,7 +194,11 @@ export const TEMPLATE_CATALOG: TemplateSpec[] = [
       { name: 'database', path: '/database' },
     ],
     env: [
-      { key: 'FB_DATABASE', label: 'Database file', default: '/database/filebrowser.db' },
+      {
+        key: 'FB_DATABASE',
+        label: 'Database file',
+        default: '/database/filebrowser.db',
+      },
     ],
     postInstall:
       'Default credentials are admin / admin — change the password immediately after the first login.',
@@ -210,7 +226,8 @@ export const TEMPLATE_CATALOG: TemplateSpec[] = [
     repoUrl: 'https://github.com/CorentinTh/it-tools',
     image: 'corentinth/it-tools:latest',
     port: 80,
-    postInstall: 'Entirely stateless — no volume, no login, safe to redeploy at any time.',
+    postInstall:
+      'Entirely stateless — no volume, no login, safe to redeploy at any time.',
   },
   {
     slug: 'excalidraw',

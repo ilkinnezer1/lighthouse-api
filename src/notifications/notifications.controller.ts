@@ -85,7 +85,7 @@ export class NotificationsController {
       data: {
         orgId,
         name: dto.name,
-        kind: dto.kind as NotificationKind,
+        kind: dto.kind,
         configEnc: this.notifications.encryptConfig({ url: dto.url }),
         enabled: dto.enabled ?? true,
         events: dto.events ?? [],
@@ -155,11 +155,17 @@ export class NotificationsController {
       await this.notifications.sendTest(channel);
       return { ok: true };
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : 'failed' };
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : 'failed',
+      };
     }
   }
 
-  private parse<T>(schema: { safeParse: (v: unknown) => SafeParse<T> }, body: unknown): T {
+  private parse<T>(
+    schema: { safeParse: (v: unknown) => SafeParse<T> },
+    body: unknown,
+  ): T {
     const parsed = schema.safeParse(body);
     if (!parsed.success) {
       throw new BadRequestException({
@@ -170,10 +176,7 @@ export class NotificationsController {
     return parsed.data;
   }
 
-  private async find(
-    orgId: string,
-    id: string,
-  ): Promise<NotificationChannel> {
+  private async find(orgId: string, id: string): Promise<NotificationChannel> {
     const channel = await this.prisma.notificationChannel.findFirst({
       where: { id, orgId },
     });

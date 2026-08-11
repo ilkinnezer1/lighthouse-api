@@ -95,7 +95,10 @@ export class VolumeBackupsService {
           },
           data: { isBaseline: false },
         }),
-        this.prisma.volumeBackup.update({ where: { id: backupId }, data: meta }),
+        this.prisma.volumeBackup.update({
+          where: { id: backupId },
+          data: meta,
+        }),
       ]);
       return toView(updated);
     }

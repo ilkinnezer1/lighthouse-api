@@ -43,15 +43,15 @@ export class EnvVarsService {
     environmentId: string,
     dto: SetEnvVarsDto,
   ): Promise<EnvVarSummary[]> {
-    const next = { ...(await this.load(environmentId)), ...this.normalize(dto) };
+    const next = {
+      ...(await this.load(environmentId)),
+      ...this.normalize(dto),
+    };
     await this.save(environmentId, next);
     return summarize(next);
   }
 
-  async remove(
-    environmentId: string,
-    key: string,
-  ): Promise<EnvVarSummary[]> {
+  async remove(environmentId: string, key: string): Promise<EnvVarSummary[]> {
     const current = await this.load(environmentId);
     if (!(key in current)) {
       throw new NotFoundException(`No env var "${key}"`);
@@ -133,7 +133,10 @@ function parseDotenv(text: string): Record<string, string> {
     if (eq === -1) {
       continue;
     }
-    const key = line.slice(0, eq).trim().replace(/^export\s+/, '');
+    const key = line
+      .slice(0, eq)
+      .trim()
+      .replace(/^export\s+/, '');
     let value = line.slice(eq + 1).trim();
     if (
       value.length >= 2 &&

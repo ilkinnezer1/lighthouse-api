@@ -66,12 +66,12 @@ export class VolumesController {
 
     const url = `${this.base()}/environments/${id}/volumes/${encodeURIComponent(name)}`;
     const resp = await this.worker(url, 'DELETE');
-    if (resp.status === HttpStatus.CONFLICT) {
+    if (resp.status === 409) {
       throw new ConflictException(
         'Volume is still attached to a container — it can only be removed once no deployment uses it',
       );
     }
-    if (resp.status === HttpStatus.NOT_FOUND) {
+    if (resp.status === 404) {
       throw new NotFoundException('Volume not found');
     }
     if (!resp.ok) {

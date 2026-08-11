@@ -109,11 +109,17 @@ export class QueueService {
   }
 
   enqueueVolumeBackup(backupId: string): Promise<string> {
-    return this.enqueueVolumeBackupJob(VOLUME_BACKUP_JOB_TYPES.Backup, backupId);
+    return this.enqueueVolumeBackupJob(
+      VOLUME_BACKUP_JOB_TYPES.Backup,
+      backupId,
+    );
   }
 
   enqueueVolumeRestore(backupId: string): Promise<string> {
-    return this.enqueueVolumeBackupJob(VOLUME_BACKUP_JOB_TYPES.Restore, backupId);
+    return this.enqueueVolumeBackupJob(
+      VOLUME_BACKUP_JOB_TYPES.Restore,
+      backupId,
+    );
   }
 
   // The archive key travels with the job so the API can drop the row straight
@@ -168,7 +174,11 @@ export class QueueService {
     if (storageKey) {
       fields.push(FIELD_STORAGE_KEY, storageKey);
     }
-    const entryId = await this.redis.xadd(DATABASE_QUEUE_STREAM, '*', ...fields);
+    const entryId = await this.redis.xadd(
+      DATABASE_QUEUE_STREAM,
+      '*',
+      ...fields,
+    );
 
     if (!entryId) {
       throw new Error('XADD returned no entry ID');

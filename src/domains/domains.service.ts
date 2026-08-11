@@ -1,4 +1,8 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { promises as dns } from 'node:dns';
@@ -112,7 +116,9 @@ export class DomainsService {
       };
     }
 
-    const expected = await resolveAll(this.config.get('BASE_DOMAIN', { infer: true }));
+    const expected = await resolveAll(
+      this.config.get('BASE_DOMAIN', { infer: true }),
+    );
     return {
       domain: customDomain,
       resolves: found.length > 0,

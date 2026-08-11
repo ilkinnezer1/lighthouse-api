@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { CronExpressionParser } from 'cron-parser';
 import type { ScheduledTask } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';

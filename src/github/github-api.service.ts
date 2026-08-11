@@ -1,9 +1,4 @@
-import {
-  HttpException,
-  HttpStatus,
-  Injectable,
-  Logger,
-} from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { CryptoService } from '../crypto/crypto.service';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -81,9 +76,7 @@ export class GithubApiService {
    * exists (required for private repos, higher rate limits otherwise) and
    * falling back to an unauthenticated call so public repos still resolve.
    */
-  private async authHeaders(
-    ownerId: string,
-  ): Promise<Record<string, string>> {
+  private async authHeaders(ownerId: string): Promise<Record<string, string>> {
     const credential = await this.prisma.gitCredential.findFirst({
       where: { userId: ownerId, kind: 'PAT' },
       orderBy: { createdAt: 'desc' },
@@ -243,7 +236,9 @@ export class GithubApiService {
     for (let i = 0; i < branches.length; i += COMPARE_CONCURRENCY) {
       const batch = branches.slice(i, i + COMPARE_CONCURRENCY);
       const metas = await Promise.all(
-        batch.map((b) => this.branchMeta(repoFullName, base, b, headers, refresh)),
+        batch.map((b) =>
+          this.branchMeta(repoFullName, base, b, headers, refresh),
+        ),
       );
       batch.forEach((b, j) => out.push({ ...b, ...metas[j] }));
     }
@@ -377,7 +372,7 @@ export class GithubApiService {
     }
 
     const body = (await res.json()) as GithubRepo[] | { items?: GithubRepo[] };
-    const repos = Array.isArray(body) ? body : body.items ?? [];
+    const repos = Array.isArray(body) ? body : (body.items ?? []);
     const items = repos.map((r) => this.mapRepo(r));
     const nextPage = items.length === REPOS_PER_PAGE ? page + 1 : null;
     return { items, nextPage };

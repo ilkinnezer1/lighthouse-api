@@ -125,7 +125,11 @@ export class WsGateway
     const room = deploymentRoom(deploymentId);
     await client.join(room);
     this.ensureTailer(deploymentId);
-    void this.replayHistory(client, deploymentId);
+    void this.replayHistory(client, deploymentId).catch((err: Error) => {
+      this.logger.error(
+        `log replay for ${deploymentId} failed: ${err.message}`,
+      );
+    });
     return { ok: true, room };
   }
 

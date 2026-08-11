@@ -179,12 +179,18 @@ export class GithubWebhookService {
       (payload.action === 'opened' || payload.action === 'reopened') &&
       project.providerRepoFullName
     ) {
-      void this.github.commentOnPR({
-        ownerId: project.createdByUserId,
-        repoFullName: project.providerRepoFullName,
-        prNumber,
-        body: `Preview deployed: ${deployment.url}`,
-      });
+      void this.github
+        .commentOnPR({
+          ownerId: project.createdByUserId,
+          repoFullName: project.providerRepoFullName,
+          prNumber,
+          body: `Preview deployed: ${deployment.url}`,
+        })
+        .catch((err: Error) => {
+          this.logger.warn(
+            `PR comment for project ${project.id} failed: ${err.message}`,
+          );
+        });
     }
   }
 }

@@ -33,6 +33,17 @@ describe('issueKeyFromBranch', () => {
     );
   });
 
+  // The same pattern reads commit subjects, where the key is followed by
+  // punctuation rather than a path separator.
+  it('reads a key out of a commit subject', () => {
+    expect(issueKeyFromBranch('PROJ-12: add login')).toBe('PROJ-12');
+    expect(issueKeyFromBranch('PROJ-12 add login')).toBe('PROJ-12');
+    expect(issueKeyFromBranch('fix(auth): PROJ-12 add login')).toBe('PROJ-12');
+    expect(
+      issueKeyFromBranch('Merge pull request #4 from acme/PROJ-12-login'),
+    ).toBe('PROJ-12');
+  });
+
   it('returns null for branches that carry no ticket', () => {
     expect(issueKeyFromBranch('main')).toBeNull();
     expect(issueKeyFromBranch('develop')).toBeNull();

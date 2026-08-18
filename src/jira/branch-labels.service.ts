@@ -29,43 +29,66 @@ export class BranchLabelsService {
     private readonly jira: JiraApiService,
   ) {}
 
-  /** Map of branch name → issue, for the branches that name one. */
-  async labelBranches(
+  /**
+   * Issues named anywhere in the given strings that Jira confirms exist, keyed
+   * by issue key. Works on branch names and commit subjects alike.
+   *
+   * Only a key Jira actually answers for counts as a ticket. The key pattern
+   * necessarily also matches ordinary text like `branch-1` or `utf-8`, and
+   * labelling those would invent a ticket that isn't there. Jira's answer is
+   * the arbiter.
+   */
+  async confirmedIssues(
     userId: string,
     organizationId: string,
-    branchNames: string[],
+    texts: string[],
   ): Promise<Map<string, BranchIssue>> {
-    const labels = new Map<string, BranchIssue>();
-    const keys = issueKeysFromBranches(branchNames);
+    const found = new Map<string, BranchIssue>();
+    const keys = issueKeysFromBranches(texts);
     if (keys.length === 0) {
-      return labels;
+      return found;
     }
 
     const site = await this.siteFor(organizationId);
     if (!site) {
-      return labels;
+      return found;
     }
     const summaries = await this.jira.fetchSummaries(
       userId,
       site.cloudId,
       keys,
     );
-
-    for (const name of branchNames) {
-      const key = issueKeyFromBranch(name);
-      if (!key) continue;
-      // Only a key Jira actually answered for counts as a ticket. The key
-      // pattern necessarily also matches ordinary names like `branch-1` and
-      // `release-2`; labelling those would replace a real branch name with an
-      // invented ticket. Jira's answer is the arbiter, so an unrecognized key
-      // leaves the branch exactly as it was.
-      const title = summaries.get(key);
-      if (!title) continue;
-      labels.set(name, {
+    for (const [key, title] of summaries) {
+      found.set(key, {
         issueKey: key,
         issueTitle: title,
         issueUrl: issueUrl(site.url, key),
       });
+    }
+    return found;
+  }
+
+  /** Map of branch name → issue, for the branches that name a confirmed one. */
+  async labelBranches(
+    userId: string,
+    organizationId: string,
+    branchNames: string[],
+  ): Promise<Map<string, BranchIssue>> {
+    const byKey = await this.confirmedIssues(
+      userId,
+      organizationId,
+      branchNames,
+    );
+    const labels = new Map<string, BranchIssue>();
+    if (byKey.size === 0) {
+      return labels;
+    }
+    for (const name of branchNames) {
+      const key = issueKeyFromBranch(name);
+      const issue = key ? byKey.get(key) : undefined;
+      if (issue) {
+        labels.set(name, issue);
+      }
     }
     return labels;
   }

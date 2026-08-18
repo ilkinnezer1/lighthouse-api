@@ -26,6 +26,21 @@ export interface BranchMeta {
 
 export type RepoBranchWithMeta = RepoBranch & BranchMeta;
 
+export interface RepoCommit {
+  sha: string;
+  message: string;
+  author: string | null;
+  date: string | null;
+  url: string;
+}
+
+export interface CommitRange {
+  commits: RepoCommit[];
+  /** GitHub's own count, which can exceed `commits.length` — see below. */
+  totalCommits: number;
+  truncated: boolean;
+}
+
 export interface RepoSummary {
   fullName: string;
   name: string;
@@ -243,6 +258,72 @@ export class GithubApiService {
       batch.forEach((b, j) => out.push({ ...b, ...metas[j] }));
     }
     return out;
+  }
+
+  /**
+   * The commits reachable from `head` but not `base`, oldest first — what
+   * landed between two builds of the same environment.
+   *
+   * GitHub's compare caps the embedded `commits` array at 250 even when
+   * `total_commits` is higher, so the two are reported separately rather than
+   * quietly showing a short list as if it were complete. Returns null on any
+   * failure; the caller treats that as "cannot say", not "nothing changed".
+   */
+  async compareCommits(
+    ownerId: string,
+    repoFullName: string,
+    base: string,
+    head: string,
+  ): Promise<CommitRange | null> {
+    const headers = await this.authHeaders(ownerId);
+    try {
+      const res = await fetch(
+        `${GITHUB_API}/repos/${repoFullName}/compare/${encodeURIComponent(
+          base,
+        )}...${encodeURIComponent(head)}`,
+        { headers },
+      );
+      if (!res.ok) {
+        this.logger.warn(
+          `compare commits ${base}...${head} failed for ${repoFullName}: ${res.status} ${res.statusText}`,
+        );
+        return null;
+      }
+      const body = (await res.json()) as {
+        total_commits?: number;
+        commits?: Array<{
+          sha?: string;
+          html_url?: string;
+          commit?: {
+            message?: string;
+            author?: { name?: string; date?: string };
+          };
+        }>;
+      };
+      const commits: RepoCommit[] = (body.commits ?? [])
+        .filter((c) => c.sha)
+        .map((c) => ({
+          sha: c.sha!,
+          // Only the subject: a body can run for paragraphs and the list is
+          // meant to be scanned.
+          message: (c.commit?.message ?? '').split('\n')[0],
+          author: c.commit?.author?.name ?? null,
+          date: c.commit?.author?.date ?? null,
+          url:
+            c.html_url ?? `https://github.com/${repoFullName}/commit/${c.sha!}`,
+        }));
+      const totalCommits = body.total_commits ?? commits.length;
+      return {
+        commits,
+        totalCommits,
+        truncated: totalCommits > commits.length,
+      };
+    } catch (err) {
+      this.logger.warn(
+        `compare commits ${base}...${head} errored for ${repoFullName}: ${String(err)}`,
+      );
+      return null;
+    }
   }
 
   /** Cache a delta, sweeping expired entries when the map grows past its cap. */

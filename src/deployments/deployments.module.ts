@@ -6,6 +6,7 @@ import { QueueModule } from '../queue/queue.module';
 import { DeploymentAccessService } from './deployment-access.service';
 import { DeploymentActionsController } from './deployment-actions.controller';
 import { DeploymentBranchesService } from './deployment-branches.service';
+import { DeploymentChangesService } from './deployment-changes.service';
 import { DeploymentServicesController } from './deployment-services.controller';
 import { DeploymentsController } from './deployments.controller';
 import { DeploymentsService } from './deployments.service';
@@ -21,6 +22,7 @@ import { WorkerProxyService } from './worker-proxy.service';
   providers: [
     DeploymentsService,
     DeploymentBranchesService,
+    DeploymentChangesService,
     DeploymentAccessService,
     WorkerProxyService,
   ],

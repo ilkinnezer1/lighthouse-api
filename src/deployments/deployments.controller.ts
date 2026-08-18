@@ -16,6 +16,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AuthzService } from '../authz/authz.service';
 import { DeploymentAccessService } from './deployment-access.service';
+import { DeploymentChangesService } from './deployment-changes.service';
 import { DeploymentsService } from './deployments.service';
 import { CreateDeploymentDto } from './dto/create-deployment.dto';
 import { ListDeploymentsDto } from './dto/list-deployments.dto';
@@ -26,6 +27,7 @@ export class DeploymentsController {
   constructor(
     private readonly deployments: DeploymentsService,
     private readonly access: DeploymentAccessService,
+    private readonly changes: DeploymentChangesService,
     private readonly authz: AuthzService,
   ) {}
 
@@ -58,6 +60,18 @@ export class DeploymentsController {
   async listAll(@Query() query: ListDeploymentsDto, @CurrentUser() user: User) {
     const orgId = await this.authz.resolveScopeOrgId(user, query.orgId);
     return this.deployments.listForOrg(orgId, query);
+  }
+
+  // What landed between the previous succeeded build of this environment and
+  // this one. Separate from the detail payload because it costs a GitHub round
+  // trip, and the page is useful before it resolves.
+  @Get('deployments/:id/changes')
+  async changesSince(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentUser() user: User,
+  ) {
+    await this.access.authorize(id, user, 'deployments.read');
+    return this.changes.forDeployment(id, user.id);
   }
 
   @Get('deployments/:id')

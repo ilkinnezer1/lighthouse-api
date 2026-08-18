@@ -2,10 +2,17 @@
 // is unit-testable without Nest, and so the same rules can be reasoned about in
 // one place — every caller that labels a branch goes through here.
 
-// A Jira project key is 2-10 chars, starts with a letter, then letters/digits;
-// the issue number follows a hyphen. The key must sit on a `/`, `-` or `_`
-// boundary so `release/v1.2-3` and a bare SHA never look like tickets.
-const ISSUE_KEY = /(?:^|[/_-])([A-Za-z][A-Za-z0-9]{1,9}-\d+)(?=$|[/_-])/;
+// A Jira project key is 2-10 chars, starting with a letter, then the issue
+// number after a hyphen. It has to sit on a non-alphanumeric boundary at both
+// ends, which covers a branch (`feature/PROJ-12-add-login`) and a commit subject
+// (`fix(auth): PROJ-12 add login`) alike, while keeping `release/v1.2-3` and
+// bare dates out — those fail the "starts with a letter, 2 chars minimum" rule.
+//
+// The pattern cannot avoid also matching things like `utf-8`. That is fine and
+// deliberate: nothing is labelled until Jira confirms the key exists, so a false
+// positive costs one unmatched key in a batch lookup and nothing else.
+const ISSUE_KEY =
+  /(?:^|[^A-Za-z0-9])([A-Za-z][A-Za-z0-9]{1,9}-\d+)(?=$|[^A-Za-z0-9])/;
 
 /**
  * Extract the issue key from a branch name, uppercased as Jira stores it.
@@ -18,7 +25,10 @@ export function issueKeyFromBranch(branch: string): string | null {
   return match ? match[1].toUpperCase() : null;
 }
 
-/** Every distinct key across a set of branch names, in first-seen order. */
+/**
+ * Every distinct key across a set of strings, in first-seen order. Works for
+ * branch names and commit subjects — the pattern accepts both.
+ */
 export function issueKeysFromBranches(branches: string[]): string[] {
   const keys: string[] = [];
   const seen = new Set<string>();

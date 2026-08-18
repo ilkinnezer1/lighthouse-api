@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { GithubApiService } from '../github/github-api.service';
+import { BranchLabelsService } from '../jira/branch-labels.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 export type BranchRow = Prisma.DeploymentBranchCreateWithoutDeploymentInput;
@@ -20,6 +21,7 @@ export class DeploymentBranchesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly github: GithubApiService,
+    private readonly branchLabels: BranchLabelsService,
   ) {}
 
   /**
@@ -34,6 +36,7 @@ export class DeploymentBranchesService {
     environmentId: string,
     sourceBranch: string | undefined,
     mergeBranches: string[] | undefined,
+    viewerId?: string,
   ): Promise<BranchRow[]> {
     const merges = (mergeBranches ?? []).map((b) => b.trim()).filter(Boolean);
     const requestedSource = sourceBranch?.trim();
@@ -41,10 +44,8 @@ export class DeploymentBranchesService {
       return [];
     }
 
-    const { source, shaByName } = await this.resolveAvailableBranches(
-      environmentId,
-      requestedSource,
-    );
+    const { source, shaByName, organizationId } =
+      await this.resolveAvailableBranches(environmentId, requestedSource);
 
     const unknown = [source, ...merges].filter((n) => !shaByName.has(n));
     if (unknown.length > 0) {
@@ -53,20 +54,63 @@ export class DeploymentBranchesService {
       );
     }
 
-    return this.toRows(source, merges, shaByName);
+    const rows = this.toRows(source, merges, shaByName);
+    return this.withIssueSnapshot(rows, organizationId, viewerId);
+  }
+
+  /**
+   * Stamp each row with the Jira issue its branch names, resolved once here so
+   * the deployment keeps reading as its ticket forever — after the summary is
+   * edited, after the org disconnects Jira, and without a Jira call to render
+   * a deployments list. Best-effort: a failure costs labels, not the deploy.
+   */
+  private async withIssueSnapshot(
+    rows: BranchRow[],
+    organizationId: string,
+    viewerId: string | undefined,
+  ): Promise<BranchRow[]> {
+    if (!viewerId || rows.length === 0) {
+      return rows;
+    }
+    try {
+      const labels = await this.branchLabels.labelBranches(
+        viewerId,
+        organizationId,
+        rows.map((r) => r.name),
+      );
+      if (labels.size === 0) {
+        return rows;
+      }
+      return rows.map((row) => {
+        const label = labels.get(row.name);
+        return label
+          ? { ...row, issueKey: label.issueKey, issueTitle: label.issueTitle }
+          : row;
+      });
+    } catch {
+      return rows;
+    }
   }
 
   /** Load the env's repo, fetch its branches, and pick the source branch. */
   private async resolveAvailableBranches(
     environmentId: string,
     requestedSource: string | undefined,
-  ): Promise<{ source: string; shaByName: Map<string, string> }> {
+  ): Promise<{
+    source: string;
+    shaByName: Map<string, string>;
+    organizationId: string;
+  }> {
     const env = await this.prisma.environment.findUnique({
       where: { id: environmentId },
       select: {
         branch: true,
         project: {
-          select: { createdByUserId: true, providerRepoFullName: true },
+          select: {
+            createdByUserId: true,
+            providerRepoFullName: true,
+            organizationId: true,
+          },
         },
       },
     });
@@ -93,7 +137,11 @@ export class DeploymentBranchesService {
       throw new BadGatewayException('Could not fetch branches from GitHub');
     }
 
-    return { source, shaByName: new Map(branches.map((b) => [b.name, b.sha])) };
+    return {
+      source,
+      shaByName: new Map(branches.map((b) => [b.name, b.sha])),
+      organizationId: env.project.organizationId,
+    };
   }
 
   /** Source first (ordinal 0), then deduped merges in order (ordinal 1..N). */

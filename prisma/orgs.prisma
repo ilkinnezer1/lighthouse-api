@@ -27,6 +27,12 @@ model Organization {
   slug       String  @unique // url-safe; personal orgs use the owner's username
   isPersonal Boolean @default(false) @map("is_personal")
 
+  // The Jira site this org's branch labels resolve against. Set once by an
+  // admin from the sites their Atlassian token can see; every member then
+  // reads the same Jira, each with their own token.
+  atlassianCloudId  String? @map("atlassian_cloud_id")
+  atlassianSiteUrl  String? @map("atlassian_site_url")
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 

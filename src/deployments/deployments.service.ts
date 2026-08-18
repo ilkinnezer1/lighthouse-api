@@ -56,6 +56,7 @@ export class DeploymentsService {
       environmentId,
       opts.sourceBranch,
       opts.mergeBranches,
+      triggeredByUserId,
     );
     return this.enqueue(
       environmentId,
@@ -114,12 +115,17 @@ export class DeploymentsService {
       );
     }
 
+    // Carries the original rows' issue snapshot forward rather than re-reading
+    // Jira: a rollback reproduces one exact past build, so it should read as
+    // the ticket that build carried, even if the ticket has since been renamed.
     const branchRows: BranchRow[] = src.branches.length
       ? src.branches.map((b) => ({
           role: b.role,
           name: b.name,
           sha: b.sha,
           ordinal: b.ordinal,
+          issueKey: b.issueKey,
+          issueTitle: b.issueTitle,
         }))
       : this.pinnedSourceRow(src.environment.branch, src.commitSha);
 
@@ -174,7 +180,9 @@ export class DeploymentsService {
               project: {
                 include: {
                   owner: { select: { username: true } },
-                  organization: { select: { slug: true } },
+                  organization: {
+                    select: { slug: true, atlassianSiteUrl: true },
+                  },
                 },
               },
             },
@@ -250,7 +258,9 @@ export class DeploymentsService {
                 name: true,
                 subdomain: true,
                 owner: { select: { username: true } },
-                organization: { select: { slug: true } },
+                organization: {
+                  select: { slug: true, atlassianSiteUrl: true },
+                },
               },
             },
           },
@@ -276,7 +286,9 @@ export class DeploymentsService {
           select: {
             subdomain: true,
             owner: { select: { username: true } },
-            organization: { select: { slug: true } },
+            organization: {
+              select: { slug: true, atlassianSiteUrl: true },
+            },
           },
         },
       },
@@ -304,7 +316,9 @@ export class DeploymentsService {
             project: {
               include: {
                 owner: { select: { username: true } },
-                organization: { select: { slug: true } },
+                organization: {
+                  select: { slug: true, atlassianSiteUrl: true },
+                },
               },
             },
           },

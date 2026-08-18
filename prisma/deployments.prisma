@@ -84,6 +84,12 @@ model DeploymentBranch {
   sha     String? // resolved at enqueue time
   ordinal Int // 0 = SOURCE; 1..N = MERGE order
 
+  // Jira issue parsed from the branch name and resolved at enqueue time. Kept
+  // as a snapshot so a past deploy still reads as its ticket after the ticket
+  // is renamed, or after the org disconnects Jira entirely.
+  issueKey   String? @map("issue_key")
+  issueTitle String? @map("issue_title")
+
   @@unique([deploymentId, ordinal])
   @@index([deploymentId])
   @@map("deployment_branches")

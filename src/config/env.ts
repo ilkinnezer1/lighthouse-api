@@ -65,6 +65,16 @@ export const envSchema = z.object({
   // "not configured" and the connect endpoint 503s (never crashes the app).
   GITHUB_OAUTH_CLIENT_ID: z.string().min(1).optional(),
   GITHUB_OAUTH_CLIENT_SECRET: z.string().min(1).optional(),
+
+  // ---- atlassian oauth (jira issue titles on branches) ----
+  // Credentials of an Atlassian OAuth 2.0 (3LO) app. Absent → the Jira
+  // integration reports "not configured" and branches render without titles.
+  ATLASSIAN_OAUTH_CLIENT_ID: z.string().min(1).optional(),
+  ATLASSIAN_OAUTH_CLIENT_SECRET: z.string().min(1).optional(),
+  // Overridable only so a local stand-in can be pointed at during testing —
+  // production never sets these.
+  ATLASSIAN_AUTH_URL: z.url().default('https://auth.atlassian.com'),
+  ATLASSIAN_API_URL: z.url().default('https://api.atlassian.com'),
 });
 
 export type Env = z.infer<typeof envSchema>;

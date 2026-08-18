@@ -9,6 +9,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   UseGuards,
 } from '@nestjs/common';
 import type { User } from '@prisma/client';
@@ -17,6 +18,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AuthzService } from '../authz/authz.service';
 import { CreateOrgDto } from './dto/create-org.dto';
+import { SetJiraSiteDto } from './dto/set-jira-site.dto';
 import { UpdateMemberDto } from './dto/update-member.dto';
 import { UpdateOrgDto } from './dto/update-org.dto';
 import { OrgsService } from './orgs.service';
@@ -95,5 +97,36 @@ export class OrgsController {
     @CurrentUser() user: User,
   ) {
     await this.orgs.removeMember(id, userId, user);
+  }
+
+  @Get(':id/jira')
+  async jiraSite(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentUser() user: User,
+  ) {
+    await this.authz.ensureCan(user, 'jira.read', { organizationId: id });
+    return this.orgs.getJiraSite(id, user.id);
+  }
+
+  @Put(':id/jira')
+  @Audit('orgs.jira-set')
+  async setJiraSite(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: SetJiraSiteDto,
+    @CurrentUser() user: User,
+  ) {
+    await this.authz.ensureCan(user, 'jira.manage', { organizationId: id });
+    return this.orgs.setJiraSite(id, user.id, dto.cloudId);
+  }
+
+  @Delete(':id/jira')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @Audit('orgs.jira-clear')
+  async clearJiraSite(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentUser() user: User,
+  ) {
+    await this.authz.ensureCan(user, 'jira.manage', { organizationId: id });
+    await this.orgs.clearJiraSite(id);
   }
 }

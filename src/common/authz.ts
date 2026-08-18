@@ -32,6 +32,8 @@ export type Action =
   | 'audit.read'
   | 'notifications.read'
   | 'notifications.manage'
+  | 'jira.read'
+  | 'jira.manage'
   // owner-only — rename/delete org, transfer ownership
   | 'org.update'
   | 'org.delete'
@@ -75,6 +77,11 @@ const ADMIN_ACTIONS: Action[] = [
   'audit.read',
   'notifications.read',
   'notifications.manage',
+  // Pointing an org at a Jira site decides where every member's branch labels
+  // are resolved from, so it sits with the other admin-level settings. Members
+  // never read this directly — the API resolves labels for them.
+  'jira.read',
+  'jira.manage',
 ];
 
 const OWNER_ACTIONS: Action[] = ['org.update', 'org.delete', 'org.transfer'];

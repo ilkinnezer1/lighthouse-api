@@ -16,6 +16,10 @@ import {
   RepoBranch,
   RepoBranchWithMeta,
 } from '../github/github-api.service';
+import {
+  BranchIssue,
+  BranchLabelsService,
+} from '../jira/branch-labels.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { BuildConfigSchema } from './dto/build-config.schema';
 import { parseGithubFullName } from './util/repo-url';
@@ -24,6 +28,11 @@ export type ProjectWithEnvironments = Project & {
   environments: Environment[];
 };
 
+// A branch as the picker sees it: GitHub's name/sha (plus deltas when a base
+// was given), optionally carrying the Jira issue its name refers to.
+export type LabelledBranch = (RepoBranch | RepoBranchWithMeta) &
+  Partial<BranchIssue>;
+
 @Injectable()
 export class ProjectsService {
   constructor(
@@ -31,6 +40,7 @@ export class ProjectsService {
     private readonly crypto: CryptoService,
     private readonly github: GithubApiService,
     private readonly authz: AuthzService,
+    private readonly branchLabels: BranchLabelsService,
   ) {}
 
   async create(
@@ -127,7 +137,8 @@ export class ProjectsService {
     project: Project,
     base?: string,
     refresh = false,
-  ): Promise<RepoBranch[] | RepoBranchWithMeta[]> {
+    viewerId?: string,
+  ): Promise<LabelledBranch[]> {
     if (!project.providerRepoFullName) {
       throw new BadRequestException(
         'Project is not linked to a GitHub repository',
@@ -147,7 +158,38 @@ export class ProjectsService {
     if (branches === null) {
       throw new BadGatewayException('Could not fetch branches from GitHub');
     }
-    return branches;
+    return this.withIssueLabels(project, branches, viewerId);
+  }
+
+  /**
+   * Attach each branch's Jira issue, resolved with the viewer's own token.
+   * Labelling is decoration: if it throws, the branch list is still the answer,
+   * so a broken Jira never turns a working picker into an error page.
+   */
+  private async withIssueLabels(
+    project: Project,
+    branches: RepoBranch[] | RepoBranchWithMeta[],
+    viewerId: string | undefined,
+  ): Promise<LabelledBranch[]> {
+    if (!viewerId) {
+      return branches;
+    }
+    try {
+      const labels = await this.branchLabels.labelBranches(
+        viewerId,
+        project.organizationId,
+        branches.map((b) => b.name),
+      );
+      if (labels.size === 0) {
+        return branches;
+      }
+      return branches.map((b) => {
+        const label = labels.get(b.name);
+        return label ? { ...b, ...label } : b;
+      });
+    } catch {
+      return branches;
+    }
   }
 
   async update(

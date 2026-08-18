@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { OrgRole, type User } from '@prisma/client';
 import { AuthzService } from '../authz/authz.service';
+import { JiraApiService } from '../jira/jira-api.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { slugify } from '../projects/util/slug';
 
@@ -25,6 +26,7 @@ const MAX_SLUG_TRIES = 50;
 export class OrgsService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly jira: JiraApiService,
     private readonly authz: AuthzService,
   ) {}
 
@@ -194,6 +196,54 @@ export class OrgsService {
         'An organization must keep at least one owner',
       );
     }
+  }
+
+  /**
+   * The org's Jira site plus the sites the caller's own token can reach, so the
+   * settings UI can offer a picker without a second round-trip.
+   */
+  async getJiraSite(orgId: string, userId: string) {
+    const org = await this.prisma.organization.findUnique({
+      where: { id: orgId },
+      select: { atlassianCloudId: true, atlassianSiteUrl: true },
+    });
+    if (!org) {
+      throw new NotFoundException('Organization not found');
+    }
+    return {
+      site: org.atlassianCloudId
+        ? { cloudId: org.atlassianCloudId, url: org.atlassianSiteUrl }
+        : null,
+      availableSites: await this.jira.listSites(userId),
+      connected: await this.jira.isConnected(userId),
+    };
+  }
+
+  /**
+   * Point the org at one of the Jira sites the caller can actually reach. The
+   * name and URL come from Atlassian's answer, not the request body, so the
+   * stored link is always a site this caller was authorized to see.
+   */
+  async setJiraSite(orgId: string, userId: string, cloudId: string) {
+    const sites = await this.jira.listSites(userId);
+    const site = sites.find((s) => s.cloudId === cloudId);
+    if (!site) {
+      throw new BadRequestException(
+        'That Jira site is not available to your Atlassian account',
+      );
+    }
+    await this.prisma.organization.update({
+      where: { id: orgId },
+      data: { atlassianCloudId: site.cloudId, atlassianSiteUrl: site.url },
+    });
+    return { site: { cloudId: site.cloudId, url: site.url } };
+  }
+
+  async clearJiraSite(orgId: string): Promise<void> {
+    await this.prisma.organization.update({
+      where: { id: orgId },
+      data: { atlassianCloudId: null, atlassianSiteUrl: null },
+    });
   }
 
   // Derive a unique, url-safe slug from the org name, deduping with -2, -3, ….

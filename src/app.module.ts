@@ -23,6 +23,7 @@ import { ReaperModule } from './reaper/reaper.module';
 import { RedisModule } from './redis/redis.module';
 import { QueueModule } from './queue/queue.module';
 import { DatabasesModule } from './databases/databases.module';
+import { EnvironmentsModule } from './environments/environments.module';
 import { EnvVarsModule } from './env-vars/env-vars.module';
 import { ManagedFilesModule } from './managed-files/managed-files.module';
 import { VolumesModule } from './volumes/volumes.module';
@@ -60,6 +61,7 @@ import { WsModule } from './ws/ws.module';
     BootstrapModule,
     QueueModule,
     DatabasesModule,
+    EnvironmentsModule,
     EnvVarsModule,
     ManagedFilesModule,
     VolumesModule,

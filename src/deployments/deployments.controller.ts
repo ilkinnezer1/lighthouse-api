@@ -16,6 +16,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AuthzService } from '../authz/authz.service';
 import { DeploymentAccessService } from './deployment-access.service';
+import { DeploymentBranchesService } from './deployment-branches.service';
 import { DeploymentChangesService } from './deployment-changes.service';
 import { DeploymentsService } from './deployments.service';
 import { CreateDeploymentDto } from './dto/create-deployment.dto';
@@ -28,6 +29,7 @@ export class DeploymentsController {
     private readonly deployments: DeploymentsService,
     private readonly access: DeploymentAccessService,
     private readonly changes: DeploymentChangesService,
+    private readonly branches: DeploymentBranchesService,
     private readonly authz: AuthzService,
   ) {}
 
@@ -45,6 +47,24 @@ export class DeploymentsController {
       sourceBranch: dto.sourceBranch,
       mergeBranches: dto.mergeBranches,
     });
+  }
+
+  // A dry run of the merge a deploy would perform. Deliberately not automatic:
+  // every call costs a full fetch on the worker, so it is asked for, not polled.
+  @Post('environments/:envId/merge-check')
+  @HttpCode(HttpStatus.OK)
+  async mergeCheck(
+    @Param('envId', new ParseUUIDPipe()) envId: string,
+    @Body() dto: CreateDeploymentDto,
+    @CurrentUser() user: User,
+  ) {
+    await this.access.authorizeEnvironment(envId, user, 'deployments.create');
+    return this.branches.checkMerge(
+      envId,
+      dto.sourceBranch,
+      dto.mergeBranches,
+      user.id,
+    );
   }
 
   @Get('environments/:envId/deployments')

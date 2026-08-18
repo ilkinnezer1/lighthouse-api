@@ -8,8 +8,20 @@ import { Prisma } from '@prisma/client';
 import { GithubApiService } from '../github/github-api.service';
 import { BranchLabelsService } from '../jira/branch-labels.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { WorkerProxyService } from './worker-proxy.service';
 
 export type BranchRow = Prisma.DeploymentBranchCreateWithoutDeploymentInput;
+
+/**
+ * Whether a branch set would combine cleanly. `mergeable: null` means the probe
+ * could not run — an unreachable worker or a repo it could not fetch — which is
+ * not the same as "no conflicts" and must never be shown as one.
+ */
+export interface MergeCheckResult {
+  mergeable: boolean | null;
+  branch?: string;
+  files?: string[];
+}
 
 /**
  * Turns a requested branch set (source + merges) into immutable, SHA-pinned
@@ -22,6 +34,7 @@ export class DeploymentBranchesService {
     private readonly prisma: PrismaService,
     private readonly github: GithubApiService,
     private readonly branchLabels: BranchLabelsService,
+    private readonly worker: WorkerProxyService,
   ) {}
 
   /**
@@ -89,6 +102,65 @@ export class DeploymentBranchesService {
       });
     } catch {
       return rows;
+    }
+  }
+
+  /**
+   * Dry-run the merge the deploy would perform, without spending a build on it.
+   *
+   * Resolution is shared with the real thing — same name validation, same SHA
+   * pinning — so a check that passes has answered the question the build will
+   * ask. The probe itself runs on the worker, which is the only side with git.
+   */
+  async checkMerge(
+    environmentId: string,
+    sourceBranch: string | undefined,
+    mergeBranches: string[] | undefined,
+    userId: string,
+  ): Promise<MergeCheckResult> {
+    const rows = await this.resolve(environmentId, sourceBranch, mergeBranches);
+    const merges = rows.filter((r) => r.role === 'MERGE');
+    if (merges.length === 0) {
+      // Nothing to combine; a lone source branch cannot conflict with itself.
+      return { mergeable: true };
+    }
+
+    const env = await this.prisma.environment.findUnique({
+      where: { id: environmentId },
+      select: { project: { select: { repoUrl: true } } },
+    });
+    if (!env) {
+      throw new NotFoundException('Environment not found');
+    }
+
+    const source = rows.find((r) => r.role === 'SOURCE')!;
+    try {
+      const result = await this.worker.json<{
+        mergeable: boolean;
+        branch?: string;
+        files?: string[];
+      }>(
+        '/merge-check',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            repoUrl: env.project.repoUrl,
+            userId,
+            source: { name: source.name, sha: source.sha },
+            merges: merges.map((m) => ({ name: m.name, sha: m.sha })),
+          }),
+        },
+        {
+          notFound: 'Merge check unavailable',
+          failed: 'Merge check failed',
+        },
+      );
+      return result;
+    } catch {
+      // Degrade rather than block the deploy button: the user can still try,
+      // and the build reports the conflict properly if there is one.
+      return { mergeable: null };
     }
   }
 

@@ -96,6 +96,7 @@ export class EnvironmentsService {
     });
 
     const page = rows.slice(0, limit);
+    const openFindings = await this.openFindingCounts(page.map((r) => r.id));
     const now = new Date();
     return {
       items: page.map(({ deployments, ...row }) => ({
@@ -111,8 +112,40 @@ export class EnvironmentsService {
         // Null for an environment that has never been deployed — a real state
         // the board has to show, not an error.
         latestDeployment: deployments[0] ?? null,
+        openFindingCount: openFindings.get(row.id) ?? 0,
       })),
       nextCursor: rows.length > limit ? page[page.length - 1].id : null,
     };
+  }
+
+  /**
+   * Open findings per environment for the page that was just fetched — one
+   * grouped aggregate for the whole board, not a count per row, which is what
+   * would turn this feed into an N+1.
+   *
+   * Raw because the join is `findings -> deployments -> environment`, and
+   * Prisma can only count a relation one hop away. The alternative is a
+   * denormalised `environment_id` on `findings`, which is exactly the copied
+   * fact the model refuses to keep: a finding's environment is a property of
+   * the build it was found on, and only ever knowable from there.
+   */
+  private async openFindingCounts(
+    environmentIds: string[],
+  ): Promise<Map<string, number>> {
+    if (environmentIds.length === 0) return new Map();
+
+    const rows = await this.prisma.$queryRaw<
+      { environmentId: string; count: bigint }[]
+    >`
+      SELECT d.environment_id AS "environmentId", COUNT(*) AS count
+      FROM findings f
+      JOIN deployments d ON d.id = f.deployment_id
+      WHERE f.status = 'OPEN'
+        AND d.environment_id IN (${Prisma.join(
+          environmentIds.map((id) => Prisma.sql`${id}::uuid`),
+        )})
+      GROUP BY d.environment_id
+    `;
+    return new Map(rows.map((r) => [r.environmentId, Number(r.count)]));
   }
 }

@@ -1,5 +1,6 @@
 import { ConflictException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
+import { USER_REF_SELECT, type UserRef } from '../common/user-ref';
 
 export const DEFAULT_LOCK_HOURS = 4;
 export const MIN_LOCK_HOURS = 0.25;
@@ -7,12 +8,7 @@ export const MAX_LOCK_HOURS = 72;
 
 export const ENVIRONMENT_LOCKED_CODE = 'ENVIRONMENT_LOCKED';
 
-export interface LockHolder {
-  id: string;
-  username: string;
-  displayName: string | null;
-  email: string;
-}
+export type LockHolder = UserRef;
 
 export interface EnvironmentLock {
   lockedBy: LockHolder;
@@ -34,9 +30,7 @@ export const LOCK_SELECT = {
   lockedAt: true,
   lockExpiresAt: true,
   lockReason: true,
-  lockedBy: {
-    select: { id: true, username: true, displayName: true, email: true },
-  },
+  lockedBy: { select: USER_REF_SELECT },
 } satisfies Prisma.EnvironmentSelect;
 
 /**

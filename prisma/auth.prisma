@@ -36,6 +36,9 @@ model User {
   outboxEvents   EventOutbox[]   // events targeted at this user
   notifications  Notification[]  // in-app inbox addressed to this user
 
+  reportedFindings Finding[] @relation("FindingsReported")
+  resolvedFindings Finding[] @relation("FindingsResolved")
+
   backupSchedules BackupSchedule[]
 
   lockedEnvironments Environment[] // environments this user currently holds

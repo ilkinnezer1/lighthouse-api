@@ -23,6 +23,6 @@ import { NotificationsService } from './notifications.service';
     InboxService,
     InboxConsumer,
   ],
-  exports: [NotificationsService, InboxEvents],
+  exports: [NotificationsService, InboxEvents, InboxService],
 })
 export class NotificationsModule {}

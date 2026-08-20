@@ -37,6 +37,8 @@ model User {
 
   backupSchedules BackupSchedule[]
 
+  lockedEnvironments Environment[] // environments this user currently holds
+
   memberships         OrgMembership[]
   sentInvitations     OrgInvitation[] @relation("OrgInvitationsSent")
   receivedInvitations OrgInvitation[] @relation("OrgInvitationsReceived")

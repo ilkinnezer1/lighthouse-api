@@ -4,6 +4,7 @@ import { Prisma, type EnvironmentType } from '@prisma/client';
 import { buildDeployUrl } from '../common/url';
 import { Env } from '../config/env';
 import { PrismaService } from '../prisma/prisma.service';
+import { LOCK_SELECT, withLock } from './environment-lock';
 
 @Injectable()
 export class EnvironmentsService {
@@ -57,6 +58,7 @@ export class EnvironmentsService {
         customDomain: true,
         active: true,
         createdAt: true,
+        ...LOCK_SELECT,
         project: {
           select: {
             id: true,
@@ -94,16 +96,17 @@ export class EnvironmentsService {
     });
 
     const page = rows.slice(0, limit);
+    const now = new Date();
     return {
-      items: page.map(({ deployments, ...env }) => ({
-        ...env,
+      items: page.map(({ deployments, ...row }) => ({
+        ...withLock(row, now),
         url: buildDeployUrl({
           mode: this.config.get('MODE', { infer: true }),
           baseDomain: this.config.get('BASE_DOMAIN', { infer: true }),
-          identity: env.project.organization.slug,
-          projectSubdomain: env.project.subdomain,
-          envSubdomain: env.subdomain,
-          customDomain: env.customDomain,
+          identity: row.project.organization.slug,
+          projectSubdomain: row.project.subdomain,
+          envSubdomain: row.subdomain,
+          customDomain: row.customDomain,
         }),
         // Null for an environment that has never been deployed — a real state
         // the board has to show, not an error.

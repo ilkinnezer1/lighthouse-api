@@ -26,6 +26,15 @@ interface DeployPayload {
   url?: unknown;
 }
 
+interface SkippedLockedPayload {
+  environmentId?: unknown;
+  lockedByUserId?: unknown;
+  expiresAt?: unknown;
+  reason?: unknown;
+  commitSha?: unknown;
+  commitMessage?: unknown;
+}
+
 @Injectable()
 export class NotificationsConsumer implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(NotificationsConsumer.name);
@@ -79,6 +88,10 @@ export class NotificationsConsumer implements OnModuleInit, OnModuleDestroy {
     event: NotificationEvent,
     payload: unknown,
   ): Promise<{ orgId: string; ctx: NotificationContext } | null> {
+    if (event === NOTIFICATION_EVENTS.DeploySkippedLocked) {
+      return this.resolveSkippedLocked(payload);
+    }
+
     const body = (payload ?? {}) as DeployPayload;
     if (typeof body.deploymentId !== 'string') return null;
 
@@ -122,6 +135,63 @@ export class NotificationsConsumer implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  /**
+   * A skipped auto-deploy has no deployment row to read, so the environment and
+   * the lock come straight from the payload. Silence is the actual danger here:
+   * pushes to a locked production environment stop shipping and nothing else says so.
+   */
+  private async resolveSkippedLocked(
+    payload: unknown,
+  ): Promise<{ orgId: string; ctx: NotificationContext } | null> {
+    const body = (payload ?? {}) as SkippedLockedPayload;
+    if (typeof body.environmentId !== 'string') return null;
+
+    const environment = await this.prisma.environment.findUnique({
+      where: { id: body.environmentId },
+      select: {
+        name: true,
+        project: { select: { name: true, organizationId: true } },
+      },
+    });
+    if (!environment) return null;
+
+    const holder =
+      typeof body.lockedByUserId === 'string'
+        ? await this.prisma.user.findUnique({
+            where: { id: body.lockedByUserId },
+            select: { displayName: true, username: true, email: true },
+          })
+        : null;
+
+    const who =
+      holder?.displayName ?? holder?.username ?? holder?.email ?? 'someone';
+    const until =
+      typeof body.expiresAt === 'string' ? ` until ${body.expiresAt}` : '';
+    const because =
+      typeof body.reason === 'string' && body.reason ? ` — ${body.reason}` : '';
+
+    return {
+      orgId: environment.project.organizationId,
+      ctx: {
+        event: NOTIFICATION_EVENTS.DeploySkippedLocked,
+        title: `${this.verb(NOTIFICATION_EVENTS.DeploySkippedLocked)} — ${environment.project.name} / ${environment.name}`,
+        project: environment.project.name,
+        environment: environment.name,
+        commit: this.commitText(body),
+        url: null,
+        error: `Locked by ${who}${until}${because}. The push was not deployed.`,
+        ok: false,
+      },
+    };
+  }
+
+  private commitText(body: SkippedLockedPayload): string | null {
+    if (typeof body.commitSha !== 'string') return null;
+    const message =
+      typeof body.commitMessage === 'string' ? ` ${body.commitMessage}` : '';
+    return `${body.commitSha.slice(0, 7)}${message}`;
+  }
+
   private errorText(body: DeployPayload): string | null {
     const stage = typeof body.stage === 'string' ? body.stage : null;
     const error = typeof body.error === 'string' ? body.error : null;
@@ -137,6 +207,8 @@ export class NotificationsConsumer implements OnModuleInit, OnModuleDestroy {
         return 'Deploy failed';
       case NOTIFICATION_EVENTS.DeployCancelled:
         return 'Deploy cancelled';
+      case NOTIFICATION_EVENTS.DeploySkippedLocked:
+        return 'Deploy skipped — environment locked';
       case NOTIFICATION_EVENTS.DatabaseProvisionFailed:
         return 'Database provisioning failed';
       case NOTIFICATION_EVENTS.SnapshotFailed:

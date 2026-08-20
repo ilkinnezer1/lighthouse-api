@@ -14,15 +14,6 @@ import { AuditService } from './audit.service';
 
 const SENSITIVE_KEY_RE = /password|secret|token|hash/i;
 
-// A handler may attach extra audit detail that isn't derivable from params/body/
-// response (e.g. a project transfer's source org, gone after the update). Merged
-// into afterJson under `context`.
-declare module 'express' {
-  interface Request {
-    auditContext?: Record<string, unknown>;
-  }
-}
-
 @Injectable()
 export class AuditInterceptor implements NestInterceptor {
   constructor(
@@ -43,18 +34,22 @@ export class AuditInterceptor implements NestInterceptor {
     const params = (req.params ?? {}) as Record<string, unknown>;
     const body = (req.body ?? {}) as Record<string, unknown>;
 
-    const base = {
-      actorUserId: req.user?.id ?? null,
-      action: meta.action,
-      resourceType: meta.action.split('.')[0] ?? null,
-      ip: req.ip ?? null,
-      userAgent: req.headers['user-agent'] ?? null,
+    // Resolved after the handler runs, so a handler can refine the action.
+    const base = () => {
+      const action = req.auditAction ?? meta.action;
+      return {
+        actorUserId: req.user?.id ?? null,
+        action,
+        resourceType: action.split('.')[0] ?? null,
+        ip: req.ip ?? null,
+        userAgent: req.headers['user-agent'] ?? null,
+      };
     };
 
     return next.handle().pipe(
       tap((response: unknown) => {
         void this.audit.write({
-          ...base,
+          ...base(),
           resourceId: this.extractResourceId(params, response),
           afterJson: this.sanitize({
             params,
@@ -66,7 +61,7 @@ export class AuditInterceptor implements NestInterceptor {
       }),
       catchError((err: unknown) => {
         void this.audit.write({
-          ...base,
+          ...base(),
           resourceId: this.extractResourceId(params, null),
           afterJson: this.sanitize({
             params,

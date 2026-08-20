@@ -20,13 +20,43 @@ import {
   BranchIssue,
   BranchLabelsService,
 } from '../jira/branch-labels.service';
+import {
+  LOCK_SELECT,
+  withLock,
+  type EnvironmentLock,
+  type LockHolder,
+} from '../environments/environment-lock';
 import { PrismaService } from '../prisma/prisma.service';
 import { BuildConfigSchema } from './dto/build-config.schema';
 import { parseGithubFullName } from './util/repo-url';
 
+// Only `shapeEnvironments` can produce this: the raw Prisma row has the four
+// lock columns and no `lock`, so a query returned straight to a caller is a
+// compile error rather than an environment that silently never looks locked.
+export type EnvironmentWithLock = Omit<
+  Environment,
+  'lockedByUserId' | 'lockedAt' | 'lockExpiresAt' | 'lockReason'
+> & { lock: EnvironmentLock | null };
+
 export type ProjectWithEnvironments = Project & {
-  environments: Environment[];
+  environments: EnvironmentWithLock[];
 };
+
+export const ENVIRONMENTS_WITH_LOCK = {
+  environments: { include: { lockedBy: LOCK_SELECT.lockedBy } },
+} satisfies Prisma.ProjectInclude;
+
+type RawEnvironment = Environment & { lockedBy: LockHolder | null };
+
+export function shapeEnvironments<T extends { environments: RawEnvironment[] }>(
+  project: T,
+): Omit<T, 'environments'> & { environments: EnvironmentWithLock[] } {
+  const now = new Date();
+  return {
+    ...project,
+    environments: project.environments.map((env) => withLock(env, now)),
+  };
+}
 
 // A branch as the picker sees it: GitHub's name/sha (plus deltas when a base
 // was given), optionally carrying the Jira issue its name refers to.
@@ -75,28 +105,30 @@ export class ProjectsService {
     branch = branch || 'main';
 
     try {
-      return await this.prisma.project.create({
-        data: {
-          organizationId,
-          createdByUserId: userId,
-          name: data.name,
-          slug: data.slug,
-          subdomain: data.subdomain,
-          repoUrl: data.repoUrl,
-          defaultBranch: branch,
-          providerRepoFullName,
-          webhookSecretEnc,
-          environments: {
-            create: {
-              name: 'production',
-              type: 'PRODUCTION',
-              subdomain: 'production',
-              branch,
+      return shapeEnvironments(
+        await this.prisma.project.create({
+          data: {
+            organizationId,
+            createdByUserId: userId,
+            name: data.name,
+            slug: data.slug,
+            subdomain: data.subdomain,
+            repoUrl: data.repoUrl,
+            defaultBranch: branch,
+            providerRepoFullName,
+            webhookSecretEnc,
+            environments: {
+              create: {
+                name: 'production',
+                type: 'PRODUCTION',
+                subdomain: 'production',
+                branch,
+              },
             },
           },
-        },
-        include: { environments: true },
-      });
+          include: ENVIRONMENTS_WITH_LOCK,
+        }),
+      );
     } catch (err) {
       if (
         err instanceof Prisma.PrismaClientKnownRequestError &&
@@ -120,11 +152,12 @@ export class ProjectsService {
     });
   }
 
-  findById(id: string): Promise<ProjectWithEnvironments | null> {
-    return this.prisma.project.findFirst({
+  async findById(id: string): Promise<ProjectWithEnvironments | null> {
+    const project = await this.prisma.project.findFirst({
       where: { id, deletedAt: null },
-      include: { environments: true },
+      include: ENVIRONMENTS_WITH_LOCK,
     });
+    return project && shapeEnvironments(project);
   }
 
   /**
@@ -265,11 +298,13 @@ export class ProjectsService {
     }
 
     try {
-      return await this.prisma.project.update({
-        where: { id: projectId, deletedAt: null },
-        data: { organizationId: toOrgId },
-        include: { environments: true },
-      });
+      return shapeEnvironments(
+        await this.prisma.project.update({
+          where: { id: projectId, deletedAt: null },
+          data: { organizationId: toOrgId },
+          include: ENVIRONMENTS_WITH_LOCK,
+        }),
+      );
     } catch (err) {
       if (
         err instanceof Prisma.PrismaClientKnownRequestError &&

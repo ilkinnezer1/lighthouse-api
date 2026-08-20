@@ -66,6 +66,16 @@ model Environment {
   envVarsEnc String? @map("env_vars_enc")
   active     Boolean @default(true)
 
+  // Claim on a shared environment, so a deploy can't wipe someone's test run.
+  // Expiry is lazy: a row past `lockExpiresAt` is simply not a lock (see
+  // src/environments/environment-lock.ts) — nothing sweeps these columns, so a
+  // deploy can never race a reaper for them.
+  lockedByUserId String?   @map("locked_by_user_id") @db.Uuid
+  lockedBy       User?     @relation(fields: [lockedByUserId], references: [id])
+  lockedAt       DateTime? @map("locked_at") @db.Timestamptz(3)
+  lockExpiresAt  DateTime? @map("lock_expires_at") @db.Timestamptz(3)
+  lockReason     String?   @map("lock_reason")
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -78,6 +88,7 @@ model Environment {
 
   @@unique([projectId, name])
   @@index([projectId])
+  @@index([lockedByUserId])
   @@map("environments")
 }
 

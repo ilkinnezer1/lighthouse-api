@@ -6,6 +6,7 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
+import { DeployOverrideDto } from './deploy-override.dto';
 
 /**
  * Optional branch set for a manual deploy. Omitted entirely → deploy the
@@ -14,7 +15,7 @@ import {
  * order; the API resolves each name to a commit SHA and stores the set on the
  * deployment.
  */
-export class CreateDeploymentDto {
+export class CreateDeploymentDto extends DeployOverrideDto {
   @IsOptional()
   @IsString()
   @MinLength(1)

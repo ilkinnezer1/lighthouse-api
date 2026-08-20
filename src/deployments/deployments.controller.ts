@@ -8,18 +8,22 @@ import {
   ParseUUIDPipe,
   Post,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import type { User } from '@prisma/client';
+import type { Request } from 'express';
 import { Audit } from '../audit/audit.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AuthzService } from '../authz/authz.service';
+import { EnvironmentLocksService } from '../environments/environment-locks.service';
 import { DeploymentAccessService } from './deployment-access.service';
 import { DeploymentBranchesService } from './deployment-branches.service';
 import { DeploymentChangesService } from './deployment-changes.service';
 import { DeploymentsService } from './deployments.service';
 import { CreateDeploymentDto } from './dto/create-deployment.dto';
+import { DeployOverrideDto } from './dto/deploy-override.dto';
 import { ListDeploymentsDto } from './dto/list-deployments.dto';
 
 @Controller()
@@ -30,6 +34,7 @@ export class DeploymentsController {
     private readonly access: DeploymentAccessService,
     private readonly changes: DeploymentChangesService,
     private readonly branches: DeploymentBranchesService,
+    private readonly locks: EnvironmentLocksService,
     private readonly authz: AuthzService,
   ) {}
 
@@ -40,8 +45,10 @@ export class DeploymentsController {
     @Param('envId', new ParseUUIDPipe()) envId: string,
     @Body() dto: CreateDeploymentDto,
     @CurrentUser() user: User,
+    @Req() req: Request,
   ) {
     await this.access.authorizeEnvironment(envId, user, 'deployments.create');
+    await this.gateOnLock(envId, user, dto, req);
 
     return this.deployments.create(envId, user.id, {
       sourceBranch: dto.sourceBranch,
@@ -120,9 +127,12 @@ export class DeploymentsController {
   @Audit('deployments.redeploy')
   async redeploy(
     @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: DeployOverrideDto,
     @CurrentUser() user: User,
+    @Req() req: Request,
   ) {
-    await this.access.authorize(id, user, 'deployments.create');
+    const envId = await this.access.authorize(id, user, 'deployments.create');
+    await this.gateOnLock(envId, user, dto, req);
     return this.deployments.redeploy(id, user.id);
   }
 
@@ -131,9 +141,30 @@ export class DeploymentsController {
   @Audit('deployments.rollback')
   async rollback(
     @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: DeployOverrideDto,
     @CurrentUser() user: User,
+    @Req() req: Request,
   ) {
-    await this.access.authorize(id, user, 'deployments.create');
+    const envId = await this.access.authorize(id, user, 'deployments.create');
+    await this.gateOnLock(envId, user, dto, req);
     return this.deployments.rollback(id, user.id);
+  }
+
+  // 409s when someone else holds the environment, unless the caller asked to
+  // override — in which case the lock they walked through is audited.
+  private async gateOnLock(
+    envId: string,
+    user: User,
+    dto: DeployOverrideDto,
+    req: Request,
+  ): Promise<void> {
+    const overridden = await this.locks.assertDeployable(
+      envId,
+      user.id,
+      dto.overrideLock === true,
+    );
+    if (overridden) {
+      req.auditContext = { lockOverridden: overridden };
+    }
   }
 }

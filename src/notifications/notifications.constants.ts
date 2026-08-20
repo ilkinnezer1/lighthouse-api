@@ -15,6 +15,7 @@ export const NOTIFICATION_EVENTS = {
   DeploySucceeded: 'deploy.succeeded',
   DeployFailed: 'deploy.failed',
   DeployCancelled: 'deploy.cancelled',
+  DeploySkippedLocked: 'deploy.skipped_locked',
   DatabaseProvisionFailed: 'database.provision_failed',
   SnapshotFailed: 'database.snapshot_failed',
 } as const;
@@ -34,6 +35,7 @@ const CANONICAL_BY_RAW_TYPE: Record<string, NotificationEvent> = {
   // Nest-emitted equivalents (reaper, cancel-before-pickup).
   'deployment.failed': NOTIFICATION_EVENTS.DeployFailed,
   'deployment.cancelled': NOTIFICATION_EVENTS.DeployCancelled,
+  'deployment.skipped_locked': NOTIFICATION_EVENTS.DeploySkippedLocked,
   'database.provision_failed': NOTIFICATION_EVENTS.DatabaseProvisionFailed,
   'database.snapshot_failed': NOTIFICATION_EVENTS.SnapshotFailed,
 };

@@ -12,6 +12,8 @@ import { EnvVarsService } from '../env-vars/env-vars.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   ProjectsService,
+  ENVIRONMENTS_WITH_LOCK,
+  shapeEnvironments,
   type ProjectWithEnvironments,
 } from '../projects/projects.service';
 import { slugify } from '../projects/util/slug';
@@ -162,11 +164,13 @@ export class TemplatesService {
     });
   }
 
-  private reload(id: string): Promise<ProjectWithEnvironments> {
-    return this.prisma.project.findUniqueOrThrow({
-      where: { id },
-      include: { environments: true },
-    });
+  private async reload(id: string): Promise<ProjectWithEnvironments> {
+    return shapeEnvironments(
+      await this.prisma.project.findUniqueOrThrow({
+        where: { id },
+        include: ENVIRONMENTS_WITH_LOCK,
+      }),
+    );
   }
 }
 

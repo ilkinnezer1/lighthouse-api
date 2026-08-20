@@ -34,10 +34,12 @@ export class DeploymentAccessService {
 
   // Authorization only, for handlers that need nothing from the deployment
   // itself — skips the stages/branches/services joins `detail` pays for.
-  async authorize(id: string, user: User, action: Action): Promise<void> {
+  // Returns the environment id, which redeploy/rollback need to check the lock.
+  async authorize(id: string, user: User, action: Action): Promise<string> {
     const dep = await this.prisma.deployment.findUnique({
       where: { id },
       select: {
+        environmentId: true,
         environment: {
           select: {
             project: { select: { organizationId: true, deletedAt: true } },
@@ -49,6 +51,7 @@ export class DeploymentAccessService {
       throw new NotFoundException();
     }
     await this.authz.ensureCan(user, action, dep.environment.project);
+    return dep.environmentId;
   }
 
   async authorizeEnvironment(

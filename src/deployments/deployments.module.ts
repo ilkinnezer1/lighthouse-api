@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
+import { EnvironmentsModule } from '../environments/environments.module';
 import { GithubModule } from '../github/github.module';
 import { JiraModule } from '../jira/jira.module';
 import { QueueModule } from '../queue/queue.module';
@@ -13,7 +14,13 @@ import { DeploymentsService } from './deployments.service';
 import { WorkerProxyService } from './worker-proxy.service';
 
 @Module({
-  imports: [AuthModule, QueueModule, GithubModule, JiraModule],
+  imports: [
+    AuthModule,
+    QueueModule,
+    GithubModule,
+    JiraModule,
+    EnvironmentsModule,
+  ],
   controllers: [
     DeploymentsController,
     DeploymentServicesController,

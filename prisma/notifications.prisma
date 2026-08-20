@@ -72,3 +72,44 @@ model NotificationDelivery {
   @@index([status, nextAttemptAt])
   @@map("notification_deliveries")
 }
+
+// Notification is the other half of the story: a channel shouts into a room,
+// this addresses one person. Written by a second consumer of the same
+// `event_outbox` the channels read, and only ever when a specific recipient can
+// be resolved — an event nobody owns stays a channel concern.
+
+model Notification {
+  id     String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Canonical event name (see notifications.constants.ts), shared with the
+  // `events` a channel subscribes to so there is one vocabulary, not two.
+  kind  String
+  title String
+  body  String?
+
+  // Relative in-app path (`/deployments/<id>`), never absolute: the inbox is
+  // rendered inside the SPA and an origin baked in here would rot.
+  link String?
+
+  // Flat, denormalised subject of the notification — ids plus the names they
+  // had at write time, so the client renders a sentence without resolving
+  // anything, and a renamed project doesn't rewrite history.
+  context Json?
+
+  // The outbox is at-least-once, so a redelivered event must find this row
+  // already present and stop. Prefixed by source (`outbox:<id>`) so a future
+  // non-outbox notification cannot collide with an event id.
+  dedupeKey String @map("dedupe_key")
+
+  readAt    DateTime? @map("read_at") @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@unique([userId, dedupeKey])
+  @@index([userId, createdAt(sort: Desc)])
+  // Turned into a partial index (WHERE read_at IS NULL) in the migration SQL —
+  // the badge count is the only query that touches it.
+  @@index([userId, readAt])
+  @@map("notifications")
+}

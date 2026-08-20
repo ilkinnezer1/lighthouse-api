@@ -16,6 +16,7 @@ export const NOTIFICATION_EVENTS = {
   DeployFailed: 'deploy.failed',
   DeployCancelled: 'deploy.cancelled',
   DeploySkippedLocked: 'deploy.skipped_locked',
+  LockOverridden: 'lock.overridden',
   DatabaseProvisionFailed: 'database.provision_failed',
   SnapshotFailed: 'database.snapshot_failed',
 } as const;
@@ -36,6 +37,8 @@ const CANONICAL_BY_RAW_TYPE: Record<string, NotificationEvent> = {
   'deployment.failed': NOTIFICATION_EVENTS.DeployFailed,
   'deployment.cancelled': NOTIFICATION_EVENTS.DeployCancelled,
   'deployment.skipped_locked': NOTIFICATION_EVENTS.DeploySkippedLocked,
+  // Nest-only from birth, so its raw type is already the canonical name.
+  'lock.overridden': NOTIFICATION_EVENTS.LockOverridden,
   'database.provision_failed': NOTIFICATION_EVENTS.DatabaseProvisionFailed,
   'database.snapshot_failed': NOTIFICATION_EVENTS.SnapshotFailed,
 };

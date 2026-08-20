@@ -34,6 +34,7 @@ model User {
   auditLogs      AuditLog[]
   deployments    Deployment[]    // deployments this user triggered
   outboxEvents   EventOutbox[]   // events targeted at this user
+  notifications  Notification[]  // in-app inbox addressed to this user
 
   backupSchedules BackupSchedule[]
 

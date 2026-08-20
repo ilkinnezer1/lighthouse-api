@@ -26,7 +26,7 @@ interface DeployPayload {
   url?: unknown;
 }
 
-interface SkippedLockedPayload {
+interface LockPayload {
   environmentId?: unknown;
   lockedByUserId?: unknown;
   expiresAt?: unknown;
@@ -34,6 +34,10 @@ interface SkippedLockedPayload {
   commitSha?: unknown;
   commitMessage?: unknown;
 }
+
+type LockEvent =
+  | typeof NOTIFICATION_EVENTS.DeploySkippedLocked
+  | typeof NOTIFICATION_EVENTS.LockOverridden;
 
 @Injectable()
 export class NotificationsConsumer implements OnModuleInit, OnModuleDestroy {
@@ -88,8 +92,11 @@ export class NotificationsConsumer implements OnModuleInit, OnModuleDestroy {
     event: NotificationEvent,
     payload: unknown,
   ): Promise<{ orgId: string; ctx: NotificationContext } | null> {
-    if (event === NOTIFICATION_EVENTS.DeploySkippedLocked) {
-      return this.resolveSkippedLocked(payload);
+    if (
+      event === NOTIFICATION_EVENTS.DeploySkippedLocked ||
+      event === NOTIFICATION_EVENTS.LockOverridden
+    ) {
+      return this.resolveLockEvent(event, payload);
     }
 
     const body = (payload ?? {}) as DeployPayload;
@@ -136,14 +143,15 @@ export class NotificationsConsumer implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * A skipped auto-deploy has no deployment row to read, so the environment and
+   * Lock events have no deployment row worth reading, so the environment and
    * the lock come straight from the payload. Silence is the actual danger here:
    * pushes to a locked production environment stop shipping and nothing else says so.
    */
-  private async resolveSkippedLocked(
+  private async resolveLockEvent(
+    event: LockEvent,
     payload: unknown,
   ): Promise<{ orgId: string; ctx: NotificationContext } | null> {
-    const body = (payload ?? {}) as SkippedLockedPayload;
+    const body = (payload ?? {}) as LockPayload;
     if (typeof body.environmentId !== 'string') return null;
 
     const environment = await this.prisma.environment.findUnique({
@@ -170,22 +178,27 @@ export class NotificationsConsumer implements OnModuleInit, OnModuleDestroy {
     const because =
       typeof body.reason === 'string' && body.reason ? ` — ${body.reason}` : '';
 
+    const outcome =
+      event === NOTIFICATION_EVENTS.LockOverridden
+        ? 'The deploy went ahead anyway.'
+        : 'The push was not deployed.';
+
     return {
       orgId: environment.project.organizationId,
       ctx: {
-        event: NOTIFICATION_EVENTS.DeploySkippedLocked,
-        title: `${this.verb(NOTIFICATION_EVENTS.DeploySkippedLocked)} — ${environment.project.name} / ${environment.name}`,
+        event,
+        title: `${this.verb(event)} — ${environment.project.name} / ${environment.name}`,
         project: environment.project.name,
         environment: environment.name,
         commit: this.commitText(body),
         url: null,
-        error: `Locked by ${who}${until}${because}. The push was not deployed.`,
+        error: `Locked by ${who}${until}${because}. ${outcome}`,
         ok: false,
       },
     };
   }
 
-  private commitText(body: SkippedLockedPayload): string | null {
+  private commitText(body: LockPayload): string | null {
     if (typeof body.commitSha !== 'string') return null;
     const message =
       typeof body.commitMessage === 'string' ? ` ${body.commitMessage}` : '';
@@ -209,6 +222,8 @@ export class NotificationsConsumer implements OnModuleInit, OnModuleDestroy {
         return 'Deploy cancelled';
       case NOTIFICATION_EVENTS.DeploySkippedLocked:
         return 'Deploy skipped — environment locked';
+      case NOTIFICATION_EVENTS.LockOverridden:
+        return 'Environment lock overridden';
       case NOTIFICATION_EVENTS.DatabaseProvisionFailed:
         return 'Database provisioning failed';
       case NOTIFICATION_EVENTS.SnapshotFailed:

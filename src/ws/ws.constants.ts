@@ -18,5 +18,10 @@ export const WS_EXEC_OUTPUT = 'exec:output';
 export const WS_EXEC_EXIT = 'exec:exit';
 export const WS_EXEC_ERROR = 'exec:error';
 
+// In-app inbox (`/notifications` namespace). Server → client only: the room is
+// the authenticated user, known at handshake, so there is nothing to subscribe to.
+export const WS_NOTIFICATIONS_NAMESPACE = '/notifications';
+export const WS_EVENT_NOTIFICATION_CREATED = 'notification.created';
+
 // Short enough to react to abort; long enough to not pound Redis.
 export const XREAD_BLOCK_MS = 5000;

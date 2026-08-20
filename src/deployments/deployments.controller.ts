@@ -17,6 +17,7 @@ import { Audit } from '../audit/audit.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AuthzService } from '../authz/authz.service';
+import type { EnvironmentLock } from '../environments/environment-lock';
 import { EnvironmentLocksService } from '../environments/environment-locks.service';
 import { DeploymentAccessService } from './deployment-access.service';
 import { DeploymentBranchesService } from './deployment-branches.service';
@@ -48,12 +49,19 @@ export class DeploymentsController {
     @Req() req: Request,
   ) {
     await this.access.authorizeEnvironment(envId, user, 'deployments.create');
-    await this.gateOnLock(envId, user, dto, req);
+    const overridden = await this.gateOnLock(envId, user, dto, req);
 
-    return this.deployments.create(envId, user.id, {
+    const deployment = await this.deployments.create(envId, user.id, {
       sourceBranch: dto.sourceBranch,
       mergeBranches: dto.mergeBranches,
     });
+    await this.locks.announceOverride(
+      envId,
+      overridden,
+      user.id,
+      deployment.id,
+    );
+    return deployment;
   }
 
   // A dry run of the merge a deploy would perform. Deliberately not automatic:
@@ -132,8 +140,15 @@ export class DeploymentsController {
     @Req() req: Request,
   ) {
     const envId = await this.access.authorize(id, user, 'deployments.create');
-    await this.gateOnLock(envId, user, dto, req);
-    return this.deployments.redeploy(id, user.id);
+    const overridden = await this.gateOnLock(envId, user, dto, req);
+    const deployment = await this.deployments.redeploy(id, user.id);
+    await this.locks.announceOverride(
+      envId,
+      overridden,
+      user.id,
+      deployment.id,
+    );
+    return deployment;
   }
 
   @Post('deployments/:id/rollback')
@@ -146,18 +161,26 @@ export class DeploymentsController {
     @Req() req: Request,
   ) {
     const envId = await this.access.authorize(id, user, 'deployments.create');
-    await this.gateOnLock(envId, user, dto, req);
-    return this.deployments.rollback(id, user.id);
+    const overridden = await this.gateOnLock(envId, user, dto, req);
+    const deployment = await this.deployments.rollback(id, user.id);
+    await this.locks.announceOverride(
+      envId,
+      overridden,
+      user.id,
+      deployment.id,
+    );
+    return deployment;
   }
 
   // 409s when someone else holds the environment, unless the caller asked to
-  // override — in which case the lock they walked through is audited.
+  // override — in which case the lock they walked through is audited and
+  // returned, so the holder can be notified once the deployment exists.
   private async gateOnLock(
     envId: string,
     user: User,
     dto: DeployOverrideDto,
     req: Request,
-  ): Promise<void> {
+  ): Promise<EnvironmentLock | null> {
     const overridden = await this.locks.assertDeployable(
       envId,
       user.id,
@@ -166,5 +189,6 @@ export class DeploymentsController {
     if (overridden) {
       req.auditContext = { lockOverridden: overridden };
     }
+    return overridden;
   }
 }

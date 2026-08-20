@@ -1,10 +1,12 @@
 import {
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import type { User } from '@prisma/client';
 import { AuthzService } from '../authz/authz.service';
+import { OUTBOX_EVENT_TYPES } from '../outbox/outbox.constants';
 import { PrismaService } from '../prisma/prisma.service';
 import type { LockEnvironmentDto } from './dto/lock-environment.dto';
 import {
@@ -30,6 +32,8 @@ export interface ReleaseResult {
 
 @Injectable()
 export class EnvironmentLocksService {
+  private readonly logger = new Logger(EnvironmentLocksService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly authz: AuthzService,
@@ -132,6 +136,45 @@ export class EnvironmentLocksService {
     if (!held) return null;
     if (!overrideLock) throw environmentLockedConflict(held);
     return held;
+  }
+
+  /**
+   * Tells the holder their lock was walked through. Until now the override was
+   * only an `auditContext` flag, and an audit row is not something the person
+   * who locked the environment will ever go and read.
+   *
+   * Deliberately after the deployment exists, so the notification can link to
+   * what was actually shipped rather than just to the environment.
+   */
+  async announceOverride(
+    environmentId: string,
+    overridden: EnvironmentLock | null,
+    actorUserId: string,
+    deploymentId: string,
+  ): Promise<void> {
+    if (!overridden) return;
+    try {
+      await this.prisma.eventOutbox.create({
+        data: {
+          type: OUTBOX_EVENT_TYPES.LockOverridden,
+          userId: overridden.lockedBy.id,
+          payload: {
+            environmentId,
+            deploymentId,
+            lockedByUserId: overridden.lockedBy.id,
+            overriddenByUserId: actorUserId,
+            expiresAt: overridden.expiresAt,
+            reason: overridden.reason,
+          },
+        },
+      });
+    } catch (err) {
+      // Never fail a deploy that already happened over a notification.
+      this.logger.error(
+        `lock-override event for environment ${environmentId} failed`,
+        err,
+      );
+    }
   }
 
   async lockHeldAgainst(

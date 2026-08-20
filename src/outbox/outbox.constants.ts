@@ -26,6 +26,9 @@ export const OUTBOX_EVENT_TYPES = {
   // An automatic deploy that a live environment lock stopped. No deployment row
   // exists for it — the payload carries the environment and the lock instead.
   DeploymentSkippedLocked: 'deployment.skipped_locked',
+  // A human deploy that walked through somebody else's lock. Emitted after the
+  // deployment exists so the holder can be sent straight to what was shipped.
+  LockOverridden: 'lock.overridden',
 
   DatabaseProvisionQueued: 'database.provision_queued',
   DatabaseTeardownQueued: 'database.teardown_queued',

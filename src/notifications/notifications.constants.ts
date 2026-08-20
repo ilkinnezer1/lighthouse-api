@@ -28,6 +28,26 @@ export const ALL_NOTIFICATION_EVENTS = Object.values(
   NOTIFICATION_EVENTS,
 ) as NotificationEvent[];
 
+/**
+ * Kinds the inbox writes directly instead of draining from `event_outbox`.
+ *
+ * A findings mutation happens inside a Nest request with the recipient already
+ * known, so there is no event to emit and nothing to retry. They are
+ * deliberately kept out of ALL_NOTIFICATION_EVENTS: that list is the enum a
+ * channel's `events` array validates against, and no dispatcher will ever see
+ * these — offering them as a Slack subscription would be a checkbox that lies.
+ */
+export const INBOX_ONLY_EVENTS = {
+  FindingCreated: 'finding.created',
+  FindingResolved: 'finding.resolved',
+} as const;
+
+export type InboxOnlyEvent =
+  (typeof INBOX_ONLY_EVENTS)[keyof typeof INBOX_ONLY_EVENTS];
+
+/** Everything the in-app inbox can carry: outbox events plus the direct kinds. */
+export type InboxKind = NotificationEvent | InboxOnlyEvent;
+
 /** Raw outbox `type` → canonical event. Unmapped types are ignored. */
 const CANONICAL_BY_RAW_TYPE: Record<string, NotificationEvent> = {
   'deploy.succeeded': NOTIFICATION_EVENTS.DeploySucceeded,

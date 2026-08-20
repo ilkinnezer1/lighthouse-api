@@ -13,6 +13,12 @@ export interface WorkerErrors {
   failed: string;
 }
 
+export interface BoundedText {
+  text: string;
+  /** True when `maxBytes` forced older output to be dropped. */
+  truncated: boolean;
+}
+
 @Injectable()
 export class WorkerProxyService {
   constructor(private readonly config: ConfigService<Env, true>) {}
@@ -24,6 +30,49 @@ export class WorkerProxyService {
   ): Promise<T> {
     const resp = await this.request(path, init, errors);
     return (await resp.json()) as T;
+  }
+
+  /**
+   * Reads a worker response as text under a hard byte cap, keeping the TAIL
+   * rather than the head: this exists for log snapshots, where the newest lines
+   * are the ones worth having. Memory stays bounded at roughly `maxBytes`
+   * regardless of how much the container decides to print.
+   */
+  async text(
+    path: string,
+    init: RequestInit,
+    errors: WorkerErrors,
+    maxBytes: number,
+  ): Promise<BoundedText> {
+    const upstream = await this.request(path, init, errors);
+    if (!upstream.body) return { text: '', truncated: false };
+
+    const reader = upstream.body.getReader();
+    const chunks: Buffer[] = [];
+    let held = 0;
+    let truncated = false;
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(Buffer.from(value));
+        held += value.byteLength;
+        while (chunks.length > 1 && held - chunks[0].byteLength >= maxBytes) {
+          held -= chunks[0].byteLength;
+          chunks.shift();
+          truncated = true;
+        }
+      }
+    } finally {
+      await reader.cancel().catch(() => undefined);
+    }
+
+    let buf = Buffer.concat(chunks);
+    if (buf.byteLength > maxBytes) {
+      buf = buf.subarray(buf.byteLength - maxBytes);
+      truncated = true;
+    }
+    return { text: buf.toString('utf8'), truncated };
   }
 
   async stream(

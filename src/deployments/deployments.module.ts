@@ -33,6 +33,6 @@ import { WorkerProxyService } from './worker-proxy.service';
     DeploymentAccessService,
     WorkerProxyService,
   ],
-  exports: [DeploymentsService],
+  exports: [DeploymentsService, DeploymentAccessService, WorkerProxyService],
 })
 export class DeploymentsModule {}

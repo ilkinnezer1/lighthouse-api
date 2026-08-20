@@ -2,9 +2,13 @@ import {
   draftsFor,
   type DatabaseFacts,
   type DeploymentFacts,
+  type FindingFacts,
   type LockFacts,
 } from './inbox.recipients';
-import { NOTIFICATION_EVENTS } from './notifications.constants';
+import {
+  INBOX_ONLY_EVENTS,
+  NOTIFICATION_EVENTS,
+} from './notifications.constants';
 
 const HOLDER = 'aysel-id';
 const DEPLOYER = 'ruslan-id';
@@ -35,6 +39,24 @@ const lock = (over: Partial<LockFacts> = {}): LockFacts => ({
   commitSha: 'abc1234def5678',
   commitMessage: 'Fix the checkout total',
   deploymentId: null,
+  ...over,
+});
+
+const QA = 'aysel-qa-id';
+
+const finding = (over: Partial<FindingFacts> = {}): FindingFacts => ({
+  ...PLACE,
+  findingId: 'finding-1',
+  title: 'Checkout total is wrong for multi-currency carts',
+  status: 'OPEN',
+  deploymentId: 'deploy-1',
+  commitSha: 'abc1234def5678',
+  deployedByUserId: DEPLOYER,
+  reportedByUserId: QA,
+  reportedByName: 'Aysel',
+  resolvedByUserId: null,
+  resolvedByName: null,
+  fixedInCommitSha: null,
   ...over,
 });
 
@@ -316,5 +338,107 @@ describe('draftsFor', () => {
       expect(link?.startsWith('/')).toBe(true);
       expect(link).not.toMatch(/^https?:/);
     }
+  });
+
+  describe('findings', () => {
+    it('tells the person whose build it is, and nobody else', () => {
+      const drafts = draftsFor({
+        event: INBOX_ONLY_EVENTS.FindingCreated,
+        finding: finding(),
+      });
+
+      expect(drafts).toHaveLength(1);
+      expect(drafts[0]).toEqual({
+        userId: DEPLOYER,
+        kind: 'finding.created',
+        title: 'New finding — Nina Care / production',
+        body: 'Checkout total is wrong for multi-currency carts — reported by Aysel on abc1234',
+        link: '/deployments/deploy-1?finding=finding-1',
+        context: {
+          projectId: 'project-1',
+          projectName: 'Nina Care',
+          environmentId: 'env-1',
+          environmentName: 'production',
+          deploymentId: 'deploy-1',
+          findingId: 'finding-1',
+          commitSha: 'abc1234def5678',
+        },
+      });
+    });
+
+    it('says nothing when you file against your own deploy', () => {
+      expect(
+        draftsFor({
+          event: INBOX_ONLY_EVENTS.FindingCreated,
+          finding: finding({ reportedByUserId: DEPLOYER }),
+        }),
+      ).toEqual([]);
+    });
+
+    // Webhook deploys can land with no triggering user at all; there is nobody
+    // to address, so it stays a channel concern rather than going to everyone.
+    it('says nothing when the build has no owner', () => {
+      expect(
+        draftsFor({
+          event: INBOX_ONLY_EVENTS.FindingCreated,
+          finding: finding({ deployedByUserId: null }),
+        }),
+      ).toEqual([]);
+    });
+
+    it('tells the reporter which build fixed it', () => {
+      const drafts = draftsFor({
+        event: INBOX_ONLY_EVENTS.FindingResolved,
+        finding: finding({
+          status: 'FIXED',
+          resolvedByUserId: DEPLOYER,
+          resolvedByName: 'Ruslan',
+          fixedInCommitSha: 'def5678abc1234',
+        }),
+      });
+
+      expect(drafts).toHaveLength(1);
+      expect(drafts[0].userId).toBe(QA);
+      expect(drafts[0].title).toBe('Finding fixed — Nina Care / production');
+      expect(drafts[0].body).toBe(
+        'Checkout total is wrong for multi-currency carts — Ruslan marked it fixed in def5678',
+      );
+    });
+
+    it('distinguishes a cannot-reproduce from a fix', () => {
+      const drafts = draftsFor({
+        event: INBOX_ONLY_EVENTS.FindingResolved,
+        finding: finding({
+          status: 'CANNOT_REPRODUCE',
+          resolvedByUserId: DEPLOYER,
+          resolvedByName: 'Ruslan',
+        }),
+      });
+
+      expect(drafts[0].title).toBe('Finding closed — Nina Care / production');
+      expect(drafts[0].body).toContain('could not reproduce it');
+    });
+
+    it('says nothing when you close your own finding', () => {
+      expect(
+        draftsFor({
+          event: INBOX_ONLY_EVENTS.FindingResolved,
+          finding: finding({ status: 'FIXED', resolvedByUserId: QA }),
+        }),
+      ).toEqual([]);
+    });
+
+    it('says nothing when the reporter is gone', () => {
+      expect(
+        draftsFor({
+          event: INBOX_ONLY_EVENTS.FindingResolved,
+          finding: finding({
+            status: 'FIXED',
+            reportedByUserId: null,
+            resolvedByUserId: DEPLOYER,
+          }),
+        }),
+      ).toEqual([]);
+    });
   });
 });

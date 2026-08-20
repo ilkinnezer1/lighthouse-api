@@ -1,6 +1,8 @@
+import type { FindingStatus } from '@prisma/client';
 import {
+  INBOX_ONLY_EVENTS,
   NOTIFICATION_EVENTS,
-  type NotificationEvent,
+  type InboxKind,
 } from './notifications.constants';
 
 /**
@@ -23,11 +25,12 @@ export interface InboxContext {
   environmentName?: string;
   deploymentId?: string;
   commitSha?: string;
+  findingId?: string;
 }
 
 export interface NotificationDraft {
   userId: string;
-  kind: NotificationEvent;
+  kind: InboxKind;
   title: string;
   body: string | null;
   link: string | null;
@@ -73,6 +76,27 @@ export interface DatabaseFacts extends Place {
   failure: string | null;
 }
 
+export interface FindingFacts extends Place {
+  findingId: string;
+  title: string;
+  status: FindingStatus;
+  /** The build it was found on — the whole point of a finding. */
+  deploymentId: string;
+  commitSha: string | null;
+  /**
+   * Who triggered the build the finding sits on. Not the commit author: that is
+   * a free-text git name with no route to a Lighthouse user.
+   */
+  deployedByUserId: string | null;
+  reportedByUserId: string | null;
+  reportedByName: string | null;
+  /** Who moved it out of OPEN; null while it is still open. */
+  resolvedByUserId: string | null;
+  resolvedByName: string | null;
+  /** The build recorded as the fix, for the sentence the resolver's message reads. */
+  fixedInCommitSha: string | null;
+}
+
 type DeployEvent =
   | typeof NOTIFICATION_EVENTS.DeploySucceeded
   | typeof NOTIFICATION_EVENTS.DeployFailed
@@ -86,10 +110,15 @@ type DatabaseEvent =
   | typeof NOTIFICATION_EVENTS.DatabaseProvisionFailed
   | typeof NOTIFICATION_EVENTS.SnapshotFailed;
 
+type FindingEvent =
+  | typeof INBOX_ONLY_EVENTS.FindingCreated
+  | typeof INBOX_ONLY_EVENTS.FindingResolved;
+
 export type NotificationSubject =
   | { event: DeployEvent; deployment: DeploymentFacts }
   | { event: LockEvent; lock: LockFacts }
-  | { event: DatabaseEvent; database: DatabaseFacts };
+  | { event: DatabaseEvent; database: DatabaseFacts }
+  | { event: FindingEvent; finding: FindingFacts };
 
 export function draftsFor(subject: NotificationSubject): NotificationDraft[] {
   switch (subject.event) {
@@ -104,6 +133,10 @@ export function draftsFor(subject: NotificationSubject): NotificationDraft[] {
     case NOTIFICATION_EVENTS.DatabaseProvisionFailed:
     case NOTIFICATION_EVENTS.SnapshotFailed:
       return databaseDrafts(subject.event, subject.database);
+    case INBOX_ONLY_EVENTS.FindingCreated:
+      return findingCreatedDrafts(subject.finding);
+    case INBOX_ONLY_EVENTS.FindingResolved:
+      return findingResolvedDrafts(subject.finding);
   }
 }
 
@@ -208,6 +241,72 @@ function databaseDrafts(
       context: place(d),
     },
   ];
+}
+
+/**
+ * The person whose deploy it is. QA files against a build; the only person who
+ * can act on it is whoever put that build there — and if that is the filer
+ * themselves, nobody is told.
+ */
+function findingCreatedDrafts(f: FindingFacts): NotificationDraft[] {
+  if (!f.deployedByUserId) return [];
+  if (f.deployedByUserId === f.reportedByUserId) return [];
+
+  const who = f.reportedByName ?? 'Someone';
+  const on = f.commitSha ? ` on ${f.commitSha.slice(0, 7)}` : '';
+  return [
+    {
+      userId: f.deployedByUserId,
+      kind: INBOX_ONLY_EVENTS.FindingCreated,
+      title: `New finding — ${f.projectName} / ${f.environmentName}`,
+      body: `${f.title} — reported by ${who}${on}`,
+      link: findingLink(f),
+      context: findingContext(f),
+    },
+  ];
+}
+
+/**
+ * Back to the filer: they are the one who has to retest, and "it's ready" is
+ * the other half of the round-trip this feature exists to delete. Closing your
+ * own finding tells nobody.
+ */
+function findingResolvedDrafts(f: FindingFacts): NotificationDraft[] {
+  if (!f.reportedByUserId) return [];
+  if (f.reportedByUserId === f.resolvedByUserId) return [];
+
+  const who = f.resolvedByName ?? 'Someone';
+  const fixed = f.status === 'FIXED';
+  const fixedIn = f.fixedInCommitSha
+    ? ` in ${f.fixedInCommitSha.slice(0, 7)}`
+    : '';
+  const verb = fixed ? `marked it fixed${fixedIn}` : 'could not reproduce it';
+
+  return [
+    {
+      userId: f.reportedByUserId,
+      kind: INBOX_ONLY_EVENTS.FindingResolved,
+      title: `${fixed ? 'Finding fixed' : 'Finding closed'} — ${f.projectName} / ${f.environmentName}`,
+      body: `${f.title} — ${who} ${verb}`,
+      link: findingLink(f),
+      context: findingContext(f),
+    },
+  ];
+}
+
+// The finding lives on its deployment's page; the id is a query param so the
+// page can open straight onto it without needing a route of its own.
+function findingLink(f: FindingFacts): string {
+  return `/deployments/${f.deploymentId}?finding=${f.findingId}`;
+}
+
+function findingContext(f: FindingFacts): InboxContext {
+  return {
+    ...place(f),
+    deploymentId: f.deploymentId,
+    findingId: f.findingId,
+    ...(f.commitSha ? { commitSha: f.commitSha } : {}),
+  };
 }
 
 function place(p: Place): InboxContext {

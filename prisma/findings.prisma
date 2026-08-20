@@ -1,0 +1,67 @@
+// Models: Finding. Enums: FindingStatus, LogSnapshotStatus.
+//
+// A finding binds to a DEPLOYMENT, never to an environment. "Broken on staging"
+// is useless a day later because staging has moved; "broken on abc1234" is
+// permanent. Commit SHA, commit message, the branch set with its Jira keys, the
+// environment and the project all come free by joining that deployment, so none
+// of them are copied here — a denormalised copy would be a second truth that
+// can disagree with the build it claims to describe.
+//
+// The one exception is the log snapshot: runtime logs are `docker logs` on a
+// container the next deploy replaces, so they are gone the moment the deployment
+// is superseded. Captured at creation or never.
+
+enum FindingStatus {
+  OPEN
+  FIXED
+  CANNOT_REPRODUCE
+}
+
+enum LogSnapshotStatus {
+  CAPTURED
+  UNAVAILABLE // container already gone, or the worker could not be reached
+}
+
+model Finding {
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+
+  // The build it was found on. Cascade: without the deployment there is no
+  // evidence left for the finding to point at.
+  deploymentId String     @map("deployment_id") @db.Uuid
+  foundOn      Deployment @relation("FindingFoundOn", fields: [deploymentId], references: [id], onDelete: Cascade)
+
+  reportedByUserId String? @map("reported_by_user_id") @db.Uuid
+  reportedBy       User?   @relation("FindingsReported", fields: [reportedByUserId], references: [id], onDelete: SetNull)
+
+  title String
+  body  String?
+
+  status FindingStatus @default(OPEN)
+
+  // The build that fixed it, pinned by the server from the environment's latest
+  // succeeded deployment at the moment of the transition. Together with the
+  // found-on build that is a commit range — which changes-since-last-deploy
+  // already knows how to render.
+  fixedByDeploymentId String?     @map("fixed_by_deployment_id") @db.Uuid
+  fixedIn             Deployment? @relation("FindingFixedIn", fields: [fixedByDeploymentId], references: [id], onDelete: SetNull)
+
+  resolvedByUserId String?   @map("resolved_by_user_id") @db.Uuid
+  resolvedBy       User?     @relation("FindingsResolved", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
+  resolvedAt       DateTime? @map("resolved_at") @db.Timestamptz(3)
+
+  // CAPTURED with empty text ("the app logged nothing") and UNAVAILABLE
+  // ("there was nothing left to read") are different facts, so the outcome is
+  // an explicit status rather than an overloaded null.
+  logSnapshotStatus    LogSnapshotStatus @default(UNAVAILABLE) @map("log_snapshot_status")
+  logSnapshot          String?           @map("log_snapshot")
+  logSnapshotTruncated Boolean           @default(false) @map("log_snapshot_truncated")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([deploymentId, createdAt(sort: Desc)])
+  // Turned into a partial index (WHERE status = 'OPEN') in the migration SQL —
+  // the environments board's open count is the only query that touches it.
+  @@index([deploymentId, status])
+  @@map("findings")
+}

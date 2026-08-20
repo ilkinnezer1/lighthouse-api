@@ -1,11 +1,11 @@
 import type { Notification } from '@prisma/client';
 import type { InboxContext } from './inbox.recipients';
-import type { NotificationEvent } from './notifications.constants';
+import type { InboxKind } from './notifications.constants';
 
 /** The one notification shape: feed item, mark-read subject and socket push. */
 export interface NotificationView {
   id: string;
-  kind: NotificationEvent;
+  kind: InboxKind;
   title: string;
   body: string | null;
   link: string | null;
@@ -17,7 +17,7 @@ export interface NotificationView {
 export function toNotificationView(row: Notification): NotificationView {
   return {
     id: row.id,
-    kind: row.kind as NotificationEvent,
+    kind: row.kind as InboxKind,
     title: row.title,
     body: row.body,
     link: row.link,

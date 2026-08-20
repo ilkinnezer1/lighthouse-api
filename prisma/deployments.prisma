@@ -65,6 +65,9 @@ model Deployment {
   services Service[]
   branches DeploymentBranch[]
 
+  findings      Finding[] @relation("FindingFoundOn")
+  fixedFindings Finding[] @relation("FindingFixedIn")
+
   @@index([environmentId, createdAt(sort: Desc)])
   // Turned into a partial index in the migration SQL.
   @@index([status])

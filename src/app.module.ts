@@ -25,6 +25,7 @@ import { QueueModule } from './queue/queue.module';
 import { DatabasesModule } from './databases/databases.module';
 import { EnvironmentsModule } from './environments/environments.module';
 import { EnvVarsModule } from './env-vars/env-vars.module';
+import { FindingsModule } from './findings/findings.module';
 import { ManagedFilesModule } from './managed-files/managed-files.module';
 import { VolumesModule } from './volumes/volumes.module';
 import { TemplatesModule } from './templates/templates.module';
@@ -72,6 +73,7 @@ import { WsModule } from './ws/ws.module';
     NotificationsModule,
     SnapshotsModule,
     DeploymentsModule,
+    FindingsModule,
     OutboxModule,
     GithubModule,
     IntegrationsModule,

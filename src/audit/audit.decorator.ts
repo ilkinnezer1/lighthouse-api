@@ -31,6 +31,8 @@ export type AuditAction =
   | 'environments.reset'
   | 'environments.unlock'
   | 'environments.volume-delete'
+  | 'findings.create'
+  | 'findings.update'
   | 'integrations.connect'
   | 'integrations.disconnect'
   | 'invitations.accept'

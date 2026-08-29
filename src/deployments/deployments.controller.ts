@@ -74,12 +74,7 @@ export class DeploymentsController {
     @CurrentUser() user: User,
   ) {
     await this.access.authorizeEnvironment(envId, user, 'deployments.create');
-    return this.branches.checkMerge(
-      envId,
-      dto.sourceBranch,
-      dto.mergeBranches,
-      user.id,
-    );
+    return this.branches.checkMerge(envId, dto.sourceBranch, dto.mergeBranches);
   }
 
   @Get('environments/:envId/deployments')

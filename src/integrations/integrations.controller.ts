@@ -1,11 +1,15 @@
 import {
   BadRequestException,
+  Body,
   Controller,
   Delete,
   Get,
   HttpCode,
   HttpStatus,
   Logger,
+  Param,
+  ParseUUIDPipe,
+  Post,
   Query,
   Res,
   ServiceUnavailableException,
@@ -20,9 +24,44 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ensureSelf } from '../common/authz';
 import { Env } from '../config/env';
 import { GithubApiService } from '../github/github-api.service';
-import { AtlassianOauthService } from './atlassian-oauth.service';
+import {
+  AtlassianOauthService,
+  type AtlassianConnection,
+} from './atlassian-oauth.service';
+import { CreateGitCredentialDto } from './dto/create-git-credential.dto';
 import { ListReposDto } from './dto/list-repos.dto';
-import { GithubOauthService } from './github-oauth.service';
+import {
+  GitCredentialsService,
+  type GitCredentialView,
+} from './git-credentials.service';
+import { GithubOauthService, type Connection } from './github-oauth.service';
+
+export type IntegrationProvider = 'github' | 'atlassian';
+
+export interface ProviderStatus {
+  /**
+   * Whether the operator has set this provider's OAuth credentials.
+   *
+   * False is not "not connected" — it means `/{provider}/connect` can only
+   * ever 503, so the client has to show the provider as unavailable instead of
+   * offering a Connect button that dead-ends on raw JSON outside the SPA.
+   * A boolean and nothing else — the credentials themselves have no business
+   * in a status payload.
+   */
+  configured: boolean;
+}
+
+export interface IntegrationsOverview {
+  connections: (Connection | AtlassianConnection)[];
+  providers: Record<IntegrationProvider, ProviderStatus>;
+  /**
+   * The caller's stored PATs. A token authenticates GitHub on its own, so a
+   * user can be usable here with `providers.github.configured` false — the page
+   * has to be able to say "connected via token" rather than "not connected".
+   * Same view the dedicated endpoint returns, so the two cannot drift.
+   */
+  gitCredentials: GitCredentialView[];
+}
 
 @Controller('integrations')
 @UseGuards(JwtAuthGuard)
@@ -32,18 +71,59 @@ export class IntegrationsController {
   constructor(
     private readonly githubOauth: GithubOauthService,
     private readonly atlassianOauth: AtlassianOauthService,
+    private readonly gitCredentials: GitCredentialsService,
     private readonly github: GithubApiService,
     private readonly config: ConfigService<Env, true>,
   ) {}
 
   @Get()
-  async list(@CurrentUser() user: User) {
+  async list(@CurrentUser() user: User): Promise<IntegrationsOverview> {
     ensureSelf(user, user.id);
-    const [github, atlassian] = await Promise.all([
+    const [github, atlassian, gitCredentials] = await Promise.all([
       this.githubOauth.listConnections(user.id),
       this.atlassianOauth.listConnections(user.id),
+      this.gitCredentials.list(user.id),
     ]);
-    return { connections: [...github, ...atlassian] };
+    return {
+      connections: [...github, ...atlassian],
+      providers: {
+        github: { configured: this.githubOauth.isConfigured() },
+        atlassian: { configured: this.atlassianOauth.isConfigured() },
+      },
+      gitCredentials,
+    };
+  }
+
+  /**
+   * Store a Personal Access Token. The token is verified against GitHub before
+   * it is written, and never appears in the response — which matters twice
+   * over, because the audit interceptor records response bodies.
+   */
+  @Post('git-credentials')
+  @Audit('integrations.credential_create')
+  createGitCredential(
+    @Body() dto: CreateGitCredentialDto,
+    @CurrentUser() user: User,
+  ): Promise<GitCredentialView> {
+    ensureSelf(user, user.id);
+    return this.gitCredentials.create(user.id, dto);
+  }
+
+  @Get('git-credentials')
+  listGitCredentials(@CurrentUser() user: User): Promise<GitCredentialView[]> {
+    ensureSelf(user, user.id);
+    return this.gitCredentials.list(user.id);
+  }
+
+  @Delete('git-credentials/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @Audit('integrations.credential_delete')
+  async deleteGitCredential(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentUser() user: User,
+  ): Promise<void> {
+    ensureSelf(user, user.id);
+    await this.gitCredentials.remove(user.id, id);
   }
 
   @Get('github/connect')

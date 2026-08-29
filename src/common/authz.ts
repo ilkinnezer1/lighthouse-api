@@ -34,6 +34,7 @@ export type Action =
   | 'notifications.manage'
   | 'jira.read'
   | 'jira.manage'
+  | 'git.manage'
   // owner-only — rename/delete org, transfer ownership
   | 'org.update'
   | 'org.delete'
@@ -82,6 +83,11 @@ const ADMIN_ACTIONS: Action[] = [
   // never read this directly — the API resolves labels for them.
   'jira.read',
   'jira.manage',
+  // The org's GitHub credential is the same class of thing, one step sharper:
+  // it is the single account every member's deploys clone and comment as, and
+  // it decides whether members may add their own at all. Members never touch
+  // it — the API resolves it for them.
+  'git.manage',
 ];
 
 const OWNER_ACTIONS: Action[] = ['org.update', 'org.delete', 'org.transfer'];

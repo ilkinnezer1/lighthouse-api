@@ -96,7 +96,11 @@ export class EnvironmentsService {
     });
 
     const page = rows.slice(0, limit);
-    const openFindings = await this.openFindingCounts(page.map((r) => r.id));
+    const ids = page.map((r) => r.id);
+    const [openFindings, checklists] = await Promise.all([
+      this.openFindingCounts(ids),
+      this.checklistProgress(ids),
+    ]);
     const now = new Date();
     return {
       items: page.map(({ deployments, ...row }) => ({
@@ -113,6 +117,10 @@ export class EnvironmentsService {
         // the board has to show, not an error.
         latestDeployment: deployments[0] ?? null,
         openFindingCount: openFindings.get(row.id) ?? 0,
+        // Null, not a zeroed object: an environment nobody has put a checklist
+        // on has no progress to report, which is different from one where
+        // everything is still outstanding.
+        checklist: checklists.get(row.id) ?? null,
       })),
       nextCursor: rows.length > limit ? page[page.length - 1].id : null,
     };
@@ -147,5 +155,52 @@ export class EnvironmentsService {
       GROUP BY d.environment_id
     `;
     return new Map(rows.map((r) => [r.environmentId, Number(r.count)]));
+  }
+
+  /**
+   * Checklist progress per environment, measured against the build the board
+   * is already showing as current — its latest SUCCEEDED deployment.
+   *
+   * `remaining` counts items with no check on *that* build, so an item ticked
+   * two deploys ago is outstanding again the moment the code moves. An
+   * environment that has never succeeded has no build to have tested, so every
+   * item is remaining — which is what the LEFT JOIN on a null deployment gives
+   * for free.
+   */
+  private async checklistProgress(
+    environmentIds: string[],
+  ): Promise<Map<string, { total: number; remaining: number }>> {
+    if (environmentIds.length === 0) return new Map();
+
+    const ids = Prisma.join(
+      environmentIds.map((id) => Prisma.sql`${id}::uuid`),
+    );
+    const rows = await this.prisma.$queryRaw<
+      { environmentId: string; total: bigint; remaining: bigint }[]
+    >`
+      WITH current_build AS (
+        SELECT DISTINCT ON (d.environment_id)
+               d.environment_id, d.id
+        FROM deployments d
+        WHERE d.environment_id IN (${ids})
+          AND d.status = 'SUCCEEDED'
+        ORDER BY d.environment_id, d.created_at DESC, d.id DESC
+      )
+      SELECT i.environment_id AS "environmentId",
+             COUNT(*) AS total,
+             COUNT(*) FILTER (WHERE c.id IS NULL) AS remaining
+      FROM checklist_items i
+      LEFT JOIN current_build b ON b.environment_id = i.environment_id
+      LEFT JOIN checklist_checks c
+             ON c.item_id = i.id AND c.deployment_id = b.id
+      WHERE i.environment_id IN (${ids})
+      GROUP BY i.environment_id
+    `;
+    return new Map(
+      rows.map((r) => [
+        r.environmentId,
+        { total: Number(r.total), remaining: Number(r.remaining) },
+      ]),
+    );
   }
 }

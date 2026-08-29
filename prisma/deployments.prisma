@@ -68,6 +68,8 @@ model Deployment {
   findings      Finding[] @relation("FindingFoundOn")
   fixedFindings Finding[] @relation("FindingFixedIn")
 
+  checklistChecks ChecklistCheck[] @relation("ChecklistChecks")
+
   @@index([environmentId, createdAt(sort: Desc)])
   // Turned into a partial index in the migration SQL.
   @@index([status])

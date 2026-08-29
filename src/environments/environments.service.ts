@@ -4,6 +4,7 @@ import { Prisma, type EnvironmentType } from '@prisma/client';
 import { buildDeployUrl } from '../common/url';
 import { Env } from '../config/env';
 import { PrismaService } from '../prisma/prisma.service';
+import { HIBERNATION_SELECT, withHibernation } from './environment-hibernation';
 import { LOCK_SELECT, withLock } from './environment-lock';
 
 @Injectable()
@@ -59,6 +60,7 @@ export class EnvironmentsService {
         active: true,
         createdAt: true,
         ...LOCK_SELECT,
+        ...HIBERNATION_SELECT,
         project: {
           select: {
             id: true,
@@ -104,7 +106,7 @@ export class EnvironmentsService {
     const now = new Date();
     return {
       items: page.map(({ deployments, ...row }) => ({
-        ...withLock(row, now),
+        ...withHibernation(withLock(row, now)),
         url: buildDeployUrl({
           mode: this.config.get('MODE', { infer: true }),
           baseDomain: this.config.get('BASE_DOMAIN', { infer: true }),

@@ -21,6 +21,10 @@ import {
   BranchLabelsService,
 } from '../jira/branch-labels.service';
 import {
+  withHibernation,
+  type EnvironmentHibernation,
+} from '../environments/environment-hibernation';
+import {
   LOCK_SELECT,
   withLock,
   type EnvironmentLock,
@@ -30,13 +34,24 @@ import { PrismaService } from '../prisma/prisma.service';
 import { BuildConfigSchema } from './dto/build-config.schema';
 import { parseGithubFullName } from './util/repo-url';
 
-// Only `shapeEnvironments` can produce this: the raw Prisma row has the four
-// lock columns and no `lock`, so a query returned straight to a caller is a
-// compile error rather than an environment that silently never looks locked.
+// Only `shapeEnvironments` can produce this: the raw Prisma row has the lock
+// and hibernation columns and neither `lock` nor `hibernation`, so a query
+// returned straight to a caller is a compile error rather than an environment
+// that silently never looks locked or asleep. There is no
+// `GET /environments/:id` — the environment page reads `project.environments[]`
+// — so this payload is the only place that state can reach it from.
 export type EnvironmentWithLock = Omit<
   Environment,
-  'lockedByUserId' | 'lockedAt' | 'lockExpiresAt' | 'lockReason'
-> & { lock: EnvironmentLock | null };
+  | 'lockedByUserId'
+  | 'lockedAt'
+  | 'lockExpiresAt'
+  | 'lockReason'
+  | 'hibernationEnabled'
+  | 'idleTimeoutMinutes'
+  | 'lastRequestCount'
+  | 'lastActivityAt'
+  | 'hibernatedAt'
+> & { lock: EnvironmentLock | null; hibernation: EnvironmentHibernation };
 
 export type ProjectWithEnvironments = Project & {
   environments: EnvironmentWithLock[];
@@ -46,7 +61,12 @@ export const ENVIRONMENTS_WITH_LOCK = {
   environments: { include: { lockedBy: LOCK_SELECT.lockedBy } },
 } satisfies Prisma.ProjectInclude;
 
-type RawEnvironment = Environment & { lockedBy: LockHolder | null };
+// `lastRequestCount` is absent rather than optional: the Prisma client omits
+// that BigInt from every payload (src/prisma/wire-safety.ts), so a row that
+// still carried it would not be a row this codebase can produce.
+type RawEnvironment = Omit<Environment, 'lastRequestCount'> & {
+  lockedBy: LockHolder | null;
+};
 
 export function shapeEnvironments<T extends { environments: RawEnvironment[] }>(
   project: T,
@@ -54,7 +74,9 @@ export function shapeEnvironments<T extends { environments: RawEnvironment[] }>(
   const now = new Date();
   return {
     ...project,
-    environments: project.environments.map((env) => withLock(env, now)),
+    environments: project.environments.map((env) =>
+      withHibernation(withLock(env, now)),
+    ),
   };
 }
 

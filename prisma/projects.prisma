@@ -76,6 +76,20 @@ model Environment {
   lockExpiresAt  DateTime? @map("lock_expires_at") @db.Timestamptz(3)
   lockReason     String?   @map("lock_reason")
 
+  // Idle hibernation, same shape as the lock above: state on the environment,
+  // read lazily, never swept. Opt-in — an environment that sleeps without its
+  // owner asking is an outage, and no heuristic can guess which ones matter.
+  // `hibernatedAt != null` IS the sleeping state.
+  hibernationEnabled Boolean   @default(false) @map("hibernation_enabled")
+  idleTimeoutMinutes Int       @default(240) @map("idle_timeout_minutes")
+  // Last value read from Traefik's `traefik_service_requests_total`, summed
+  // across the environment's routed deployments. A counter over Traefik's
+  // process lifetime, not a delta — hence BigInt, and hence the reset handling
+  // in src/environments/hibernation-decision.ts.
+  lastRequestCount   BigInt?   @map("last_request_count")
+  lastActivityAt     DateTime? @map("last_activity_at") @db.Timestamptz(3)
+  hibernatedAt       DateTime? @map("hibernated_at") @db.Timestamptz(3)
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 

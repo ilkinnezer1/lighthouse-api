@@ -72,7 +72,7 @@ export class DeploymentChangesService {
     if (!deployment?.commitSha) {
       return { previous: null, ...empty(), unavailable: 'no-commit' };
     }
-    const { providerRepoFullName, createdByUserId, organizationId } =
+    const { providerRepoFullName, organizationId } =
       deployment.environment.project;
     if (!providerRepoFullName) {
       return { previous: null, ...empty(), unavailable: 'unlinked' };
@@ -90,7 +90,7 @@ export class DeploymentChangesService {
     }
 
     const range = await this.github.compareCommits(
-      createdByUserId,
+      organizationId,
       providerRepoFullName,
       previous.commitSha,
       deployment.commitSha,

@@ -121,8 +121,10 @@ export class ProjectsService {
     let branch = data.defaultBranch;
     if (!branch && providerRepoFullName) {
       branch =
-        (await this.github.getDefaultBranch(userId, providerRepoFullName)) ??
-        undefined;
+        (await this.github.getDefaultBranch(
+          organizationId,
+          providerRepoFullName,
+        )) ?? undefined;
     }
     branch = branch || 'main';
 
@@ -201,13 +203,13 @@ export class ProjectsService {
     }
     const branches = base
       ? await this.github.listBranchesWithDeltas(
-          project.createdByUserId,
+          project.organizationId,
           project.providerRepoFullName,
           base,
           refresh,
         )
       : await this.github.listBranches(
-          project.createdByUserId,
+          project.organizationId,
           project.providerRepoFullName,
         );
     if (branches === null) {

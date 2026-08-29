@@ -205,7 +205,7 @@ export class GithubWebhookService {
     ) {
       void this.github
         .commentOnPR({
-          ownerId: project.createdByUserId,
+          organizationId: project.organizationId,
           repoFullName: project.providerRepoFullName,
           prNumber,
           body: `Preview deployed: ${deployment.url}`,

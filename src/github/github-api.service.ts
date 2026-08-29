@@ -1,6 +1,7 @@
 import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { CryptoService } from '../crypto/crypto.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { chooseOrgCredential, type GitAuthSource } from './git-auth';
 
 const GITHUB_API = 'https://api.github.com';
 const BRANCHES_PER_PAGE = 100;
@@ -12,6 +13,11 @@ const LOGIN_CACHE_TTL_MS = 5 * 60 * 1000;
 // Sweep expired entries once the cache grows past this; sha-keyed entries are
 // orphaned by every push, so without a bound the map grows without limit.
 const COMPARE_CACHE_MAX = 1000;
+
+export interface OrgGitAuth {
+  token: string | null;
+  source: GitAuthSource;
+}
 
 export interface RepoBranch {
   name: string;
@@ -91,39 +97,134 @@ export class GithubApiService {
    * exists (required for private repos, higher rate limits otherwise) and
    * falling back to an unauthenticated call so public repos still resolve.
    */
-  private async authHeaders(ownerId: string): Promise<Record<string, string>> {
-    const credential = await this.prisma.gitCredential.findFirst({
-      where: { userId: ownerId, kind: 'PAT' },
-      orderBy: { createdAt: 'desc' },
+  /**
+   * The credential that authenticates work done for an organization.
+   *
+   * Resolved from the ORGANIZATION, never from whoever happens to have created
+   * the project — see git-auth.ts for why that ordering is the whole point.
+   */
+  async resolveOrgGitAuth(organizationId: string): Promise<OrgGitAuth> {
+    const org = await this.prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: {
+        isPersonal: true,
+        memberships: {
+          where: { role: 'OWNER' },
+          select: { userId: true },
+          take: 1,
+        },
+        gitCredentials: {
+          where: { kind: 'PAT' },
+          orderBy: { createdAt: 'desc' },
+          select: { id: true, secretEnc: true },
+          take: 1,
+        },
+      },
     });
+    if (!org) return { token: null, source: 'none' };
 
+    // Only fetched for a personal org — in a shared one it is exactly the
+    // credential that must not be borrowed, so it is never even read.
+    const ownerId = org.memberships[0]?.userId;
+    const ownerPersonalCredential =
+      org.isPersonal && ownerId
+        ? await this.prisma.gitCredential.findFirst({
+            where: { userId: ownerId, organizationId: null, kind: 'PAT' },
+            orderBy: { createdAt: 'desc' },
+            select: { id: true, secretEnc: true },
+          })
+        : null;
+
+    const { credential, source } = chooseOrgCredential({
+      orgCredential: org.gitCredentials[0] ?? null,
+      isPersonalOrg: org.isPersonal,
+      ownerPersonalCredential,
+    });
+    if (!credential) return { token: null, source };
+
+    try {
+      return { token: this.crypto.decrypt(credential.secretEnc), source };
+    } catch {
+      this.logger.warn(`failed to decrypt git credential ${credential.id}`);
+      return { token: null, source };
+    }
+  }
+
+  private async orgHeaders(
+    organizationId: string,
+  ): Promise<{ headers: Record<string, string>; auth: OrgGitAuth }> {
+    const auth = await this.resolveOrgGitAuth(organizationId);
+    return { headers: this.githubHeaders(auth.token), auth };
+  }
+
+  /**
+   * The error a shared organization gets when it has no credential of its own.
+   *
+   * Actionable on purpose: the alternative failures are a 404 on a private repo
+   * or a generic 502, both of which read as "GitHub is broken" rather than
+   * "an administrator has not set this up yet".
+   */
+  private orgCredentialMissing(): HttpException {
+    return new HttpException(
+      'No organization GitHub credential configured — an administrator must add one in the organization settings',
+      HttpStatus.PRECONDITION_REQUIRED,
+    );
+  }
+
+  private githubHeaders(token: string | null): Record<string, string> {
     const headers: Record<string, string> = {
       Accept: 'application/vnd.github+json',
       'User-Agent': 'lighthouse',
       'X-GitHub-Api-Version': '2022-11-28',
     };
-    if (credential) {
-      headers.Authorization = `Bearer ${this.crypto.decrypt(credential.secretEnc)}`;
-    }
+    if (token) headers.Authorization = `Bearer ${token}`;
     return headers;
   }
 
+  /** Decrypt a user's own stored PAT; null when absent. Personal work only. */
+  private async patToken(userId: string): Promise<string | null> {
+    const credential = await this.prisma.gitCredential.findFirst({
+      where: { userId, organizationId: null, kind: 'PAT' },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!credential) return null;
+    try {
+      return this.crypto.decrypt(credential.secretEnc);
+    } catch {
+      this.logger.warn(`failed to decrypt personal PAT for user ${userId}`);
+      return null;
+    }
+  }
+
+  /**
+   * The token the repo browser authenticates with.
+   *
+   * OAuth first when both exist — it is the narrower, revocable grant — but a
+   * stored PAT is a complete substitute here. Without this fallback a user who
+   * pasted a token could clone private repos and read compare ranges, while the
+   * Integrations page still told them GitHub was "not connected", because repo
+   * listing was the one call that never looked at `git_credentials`.
+   */
+  private async repoBrowseToken(ownerId: string): Promise<string | null> {
+    return (await this.oauthToken(ownerId)) ?? (await this.patToken(ownerId));
+  }
+
   async commentOnPR(args: {
-    ownerId: string;
+    organizationId: string;
     repoFullName: string;
     prNumber: number;
     body: string;
   }): Promise<void> {
-    const credential = await this.prisma.gitCredential.findFirst({
-      where: { userId: args.ownerId, kind: 'PAT' },
-      orderBy: { createdAt: 'desc' },
-    });
-    if (!credential) {
-      this.logger.warn(`no PAT for owner ${args.ownerId}; skipping PR comment`);
+    const { token, source } = await this.resolveOrgGitAuth(args.organizationId);
+    if (!token) {
+      // Best-effort decoration on a deploy that already happened, so this logs
+      // and returns rather than throwing — but it comments as the organization
+      // or not at all, never as whichever member happened to trigger it.
+      this.logger.warn(
+        `no git credential for org ${args.organizationId} (${source}); skipping PR comment`,
+      );
       return;
     }
-
-    const token = this.crypto.decrypt(credential.secretEnc);
 
     try {
       const res = await fetch(
@@ -151,16 +252,17 @@ export class GithubApiService {
   }
 
   /**
-   * Look up a repo's default branch via the GitHub API. Uses the owner's PAT
-   * when one exists (required for private repos, higher rate limits otherwise),
-   * but falls back to an unauthenticated call so public repos still resolve.
+   * Look up a repo's default branch via the GitHub API. Uses the ORGANIZATION's
+   * credential when it has one (required for private repos, higher rate limits
+   * otherwise), falling back to an unauthenticated call so public repos still
+   * resolve. Returns null on any failure so callers can use their own default.
    * Returns null on any failure so callers can fall back to their own default.
    */
   async getDefaultBranch(
-    ownerId: string,
+    organizationId: string,
     repoFullName: string,
   ): Promise<string | null> {
-    const headers = await this.authHeaders(ownerId);
+    const { headers } = await this.orgHeaders(organizationId);
 
     try {
       const res = await fetch(`${GITHUB_API}/repos/${repoFullName}`, {
@@ -190,10 +292,10 @@ export class GithubApiService {
    * callers can decide how to surface it.
    */
   async listBranches(
-    ownerId: string,
+    organizationId: string,
     repoFullName: string,
   ): Promise<RepoBranch[] | null> {
-    const headers = await this.authHeaders(ownerId);
+    const { headers, auth } = await this.orgHeaders(organizationId);
 
     const branches: RepoBranch[] = [];
     try {
@@ -203,6 +305,16 @@ export class GithubApiService {
           { headers },
         );
         if (!res.ok) {
+          // A private repo answers 404 to an unauthenticated caller. When the
+          // org has no credential, THAT is the reason — surfacing it as a
+          // generic upstream failure would read as "GitHub is broken" and send
+          // nobody to the setting that actually fixes it.
+          if (
+            auth.source === 'none' &&
+            (res.status === 404 || res.status === 401)
+          ) {
+            throw this.orgCredentialMissing();
+          }
           this.logger.warn(
             `branch list failed for ${repoFullName}: ${res.status} ${res.statusText}`,
           );
@@ -223,6 +335,7 @@ export class GithubApiService {
       }
       return branches;
     } catch (err) {
+      if (err instanceof HttpException) throw err;
       this.logger.warn(
         `branch list errored for ${repoFullName}: ${String(err)}`,
       );
@@ -236,17 +349,17 @@ export class GithubApiService {
    * per-branch compare failure degrades that row to null meta.
    */
   async listBranchesWithDeltas(
-    ownerId: string,
+    organizationId: string,
     repoFullName: string,
     base: string,
     refresh = false,
   ): Promise<RepoBranchWithMeta[] | null> {
-    const branches = await this.listBranches(ownerId, repoFullName);
+    const branches = await this.listBranches(organizationId, repoFullName);
     if (branches === null) {
       return null;
     }
 
-    const headers = await this.authHeaders(ownerId);
+    const { headers } = await this.orgHeaders(organizationId);
     const out: RepoBranchWithMeta[] = [];
     for (let i = 0; i < branches.length; i += COMPARE_CONCURRENCY) {
       const batch = branches.slice(i, i + COMPARE_CONCURRENCY);
@@ -270,12 +383,12 @@ export class GithubApiService {
    * failure; the caller treats that as "cannot say", not "nothing changed".
    */
   async compareCommits(
-    ownerId: string,
+    organizationId: string,
     repoFullName: string,
     base: string,
     head: string,
   ): Promise<CommitRange | null> {
-    const headers = await this.authHeaders(ownerId);
+    const { headers } = await this.orgHeaders(organizationId);
     try {
       const res = await fetch(
         `${GITHUB_API}/repos/${repoFullName}/compare/${encodeURIComponent(
@@ -404,14 +517,15 @@ export class GithubApiService {
    * List the repos the owner can access via their GitHub OAuth token (personal,
    * collaborator, and org membership — private included). No `search` lists
    * `/user/repos` sorted by push; a `search` term narrows via the Search API
-   * scoped to the owner's login. Throws 428 when GitHub is not connected.
+   * scoped to the owner's login. Throws 428 when neither an OAuth token nor a
+   * stored PAT is available.
    */
   async listRepos(
     ownerId: string,
     opts: { search?: string; page?: number },
   ): Promise<{ items: RepoSummary[]; nextPage: number | null }> {
     const page = opts.page ?? 1;
-    const token = await this.oauthToken(ownerId);
+    const token = await this.repoBrowseToken(ownerId);
     if (!token) {
       throw new HttpException(
         'GitHub not connected',
@@ -459,13 +573,13 @@ export class GithubApiService {
     return { items, nextPage };
   }
 
-  /** GitHub login for the owner's OAuth token; null when unconnected/unavailable. */
+  /** GitHub login for the owner's token (OAuth or PAT); null when unavailable. */
   async getOwnerLogin(ownerId: string): Promise<string | null> {
     const cached = this.loginCache.get(ownerId);
     if (cached && Date.now() - cached.at < LOGIN_CACHE_TTL_MS) {
       return cached.login;
     }
-    const token = await this.oauthToken(ownerId);
+    const token = await this.repoBrowseToken(ownerId);
     if (!token) return null;
     try {
       const res = await fetch(`${GITHUB_API}/user`, {

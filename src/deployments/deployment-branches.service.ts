@@ -13,6 +13,22 @@ import { WorkerProxyService } from './worker-proxy.service';
 export type BranchRow = Prisma.DeploymentBranchCreateWithoutDeploymentInput;
 
 /**
+ * The worker's `POST /merge-check` body.
+ *
+ * `projectId`, not a user: the worker resolves the git credential from the
+ * project's ORGANIZATION. It used to authenticate as the requesting person,
+ * which is the same personal-token leak that was removed from the clone path.
+ * Typed so the shape is a compile error to get wrong rather than a private repo
+ * quietly answering `mergeable: null`.
+ */
+interface MergeCheckRequest {
+  repoUrl: string;
+  projectId: string;
+  source: { name: BranchRow['name']; sha: BranchRow['sha'] };
+  merges: { name: BranchRow['name']; sha: BranchRow['sha'] }[];
+}
+
+/**
  * Whether a branch set would combine cleanly. `mergeable: null` means the probe
  * could not run — an unreachable worker or a repo it could not fetch — which is
  * not the same as "no conflicts" and must never be shown as one.
@@ -116,7 +132,6 @@ export class DeploymentBranchesService {
     environmentId: string,
     sourceBranch: string | undefined,
     mergeBranches: string[] | undefined,
-    userId: string,
   ): Promise<MergeCheckResult> {
     const rows = await this.resolve(environmentId, sourceBranch, mergeBranches);
     const merges = rows.filter((r) => r.role === 'MERGE');
@@ -127,13 +142,19 @@ export class DeploymentBranchesService {
 
     const env = await this.prisma.environment.findUnique({
       where: { id: environmentId },
-      select: { project: { select: { repoUrl: true } } },
+      select: { project: { select: { id: true, repoUrl: true } } },
     });
     if (!env) {
       throw new NotFoundException('Environment not found');
     }
 
     const source = rows.find((r) => r.role === 'SOURCE')!;
+    const payload: MergeCheckRequest = {
+      repoUrl: env.project.repoUrl,
+      projectId: env.project.id,
+      source: { name: source.name, sha: source.sha },
+      merges: merges.map((m) => ({ name: m.name, sha: m.sha })),
+    };
     try {
       const result = await this.worker.json<{
         mergeable: boolean;
@@ -144,12 +165,7 @@ export class DeploymentBranchesService {
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            repoUrl: env.project.repoUrl,
-            userId,
-            source: { name: source.name, sha: source.sha },
-            merges: merges.map((m) => ({ name: m.name, sha: m.sha })),
-          }),
+          body: JSON.stringify(payload),
         },
         {
           notFound: 'Merge check unavailable',
@@ -178,11 +194,7 @@ export class DeploymentBranchesService {
       select: {
         branch: true,
         project: {
-          select: {
-            createdByUserId: true,
-            providerRepoFullName: true,
-            organizationId: true,
-          },
+          select: { providerRepoFullName: true, organizationId: true },
         },
       },
     });
@@ -194,7 +206,7 @@ export class DeploymentBranchesService {
     if (!source) {
       throw new BadRequestException('No source branch to deploy');
     }
-    const { createdByUserId, providerRepoFullName } = env.project;
+    const { organizationId, providerRepoFullName } = env.project;
     if (!providerRepoFullName) {
       throw new BadRequestException(
         'Project is not linked to a GitHub repository',
@@ -202,7 +214,7 @@ export class DeploymentBranchesService {
     }
 
     const branches = await this.github.listBranches(
-      createdByUserId,
+      organizationId,
       providerRepoFullName,
     );
     if (branches === null) {
@@ -212,7 +224,7 @@ export class DeploymentBranchesService {
     return {
       source,
       shaByName: new Map(branches.map((b) => [b.name, b.sha])),
-      organizationId: env.project.organizationId,
+      organizationId,
     };
   }
 

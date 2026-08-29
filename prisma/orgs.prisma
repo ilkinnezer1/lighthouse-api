@@ -33,6 +33,11 @@ model Organization {
   atlassianCloudId  String? @map("atlassian_cloud_id")
   atlassianSiteUrl  String? @map("atlassian_site_url")
 
+  // Whether members may add their OWN GitHub credentials. Admins and owners are
+  // never blocked. Defaults true so an upgrade changes nobody's behaviour; a
+  // company that turns it off means it.
+  allowMemberGitCredentials Boolean @default(true) @map("allow_member_git_credentials")
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -40,6 +45,7 @@ model Organization {
   invitations OrgInvitation[]
   projects    Project[]
   notificationChannels NotificationChannel[]
+  gitCredentials       GitCredential[]
 
   @@map("organizations")
 }

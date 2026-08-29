@@ -85,6 +85,7 @@ model Environment {
   scheduledTasks   ScheduledTask[]
   volumeBackups    VolumeBackup[]
   backupSchedules  BackupSchedule[]
+  checklistItems   ChecklistItem[]
 
   @@unique([projectId, name])
   @@index([projectId])

@@ -39,6 +39,9 @@ model User {
   reportedFindings Finding[] @relation("FindingsReported")
   resolvedFindings Finding[] @relation("FindingsResolved")
 
+  checklistItems  ChecklistItem[]  @relation("ChecklistItemsCreated")
+  checklistChecks ChecklistCheck[] @relation("ChecklistChecksMade")
+
   backupSchedules BackupSchedule[]
 
   lockedEnvironments Environment[] // environments this user currently holds

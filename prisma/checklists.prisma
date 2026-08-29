@@ -1,0 +1,83 @@
+// Models: ChecklistItem, ChecklistCheck. Enums: ChecklistItemSource, CheckResult.
+//
+// The item binds to the ENVIRONMENT; the tick binds to the DEPLOYMENT.
+//
+// A task ("test PROJ-12") is a chore, not an assertion about code, and survives
+// a redeploy. A tick ("PROJ-12 works") *is* an assertion about code and is
+// worthless without the build it was made against. Binding the item set to a
+// deployment instead would mean a redeploy silently drops every tick rather
+// than marking it stale — and "checked on abc1234, this build is def5678", the
+// sentence the feature exists to say, could not be said at all.
+
+enum ChecklistItemSource {
+  SEEDED
+  MANUAL
+}
+
+enum CheckResult {
+  PASS
+  FAIL
+}
+
+model ChecklistItem {
+  id            String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  environmentId String      @map("environment_id") @db.Uuid
+  environment   Environment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+
+  title  String
+  source ChecklistItemSource @default(MANUAL)
+
+  // Display only. Populated when Jira confirmed the key; the list is seeded
+  // from keys parsed out of commit subjects either way, so an org with no
+  // Atlassian connection still gets items — just without a deep link.
+  issueKey String? @map("issue_key")
+  issueUrl String? @map("issue_url")
+
+  // What re-seeding dedupes on: the issue key for keyed items, the commit SHA
+  // for the no-keys fallback, null for anything a person typed. Separate from
+  // `issueKey` because the fallback has no key and still must not duplicate.
+  // Partial unique in the migration SQL: WHERE seed_key IS NOT NULL.
+  seedKey String? @map("seed_key")
+
+  createdByUserId String? @map("created_by_user_id") @db.Uuid
+  createdBy       User?   @relation("ChecklistItemsCreated", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  checks ChecklistCheck[]
+
+  @@unique([environmentId, seedKey])
+  @@index([environmentId, createdAt])
+  @@map("checklist_items")
+}
+
+model ChecklistCheck {
+  id     String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  itemId String        @map("item_id") @db.Uuid
+  item   ChecklistItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  // Cascade, like a finding's foundOn: a tick whose build is gone asserts
+  // nothing about anything, and must never read as "still checked".
+  deploymentId String     @map("deployment_id") @db.Uuid
+  build        Deployment @relation("ChecklistChecks", fields: [deploymentId], references: [id], onDelete: Cascade)
+
+  result CheckResult
+  note   String?
+
+  checkedByUserId String? @map("checked_by_user_id") @db.Uuid
+  checkedBy       User?   @relation("ChecklistChecksMade", fields: [checkedByUserId], references: [id], onDelete: SetNull)
+
+  // The finding a FAIL produced. SetNull: deleting the bug report does not
+  // retract the fail — somebody did test it and it did not work.
+  findingId String?  @map("finding_id") @db.Uuid
+  finding   Finding? @relation("ChecklistCheckFinding", fields: [findingId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  // An item's state on a given build is ONE fact. Re-checking upserts; the last
+  // person to set it owns it, and the row says who.
+  @@unique([itemId, deploymentId])
+  @@index([deploymentId])
+  @@map("checklist_checks")
+}

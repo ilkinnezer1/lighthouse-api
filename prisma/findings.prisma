@@ -59,6 +59,8 @@ model Finding {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
+  checklistChecks ChecklistCheck[] @relation("ChecklistCheckFinding")
+
   @@index([deploymentId, createdAt(sort: Desc)])
   // Turned into a partial index (WHERE status = 'OPEN') in the migration SQL —
   // the environments board's open count is the only query that touches it.

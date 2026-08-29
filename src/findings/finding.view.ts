@@ -41,7 +41,9 @@ export interface FindingDetail extends FindingView {
   logSnapshotTruncated: boolean;
 }
 
-const DEPLOYMENT_REF_SELECT = {
+// Exported: the checklist renders the same build reference, and a second
+// near-identical shape is how a client ends up with two "a build" types.
+export const DEPLOYMENT_REF_SELECT = {
   id: true,
   status: true,
   commitSha: true,
@@ -100,7 +102,7 @@ export function toFindingDetail(row: FindingDetailRow): FindingDetail {
   };
 }
 
-function toDeploymentRef(
+export function toDeploymentRef(
   d: Prisma.DeploymentGetPayload<{ select: typeof DEPLOYMENT_REF_SELECT }>,
 ): DeploymentRef {
   return {

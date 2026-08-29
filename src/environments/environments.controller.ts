@@ -8,6 +8,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Put,
   Query,
   Req,
   UseGuards,
@@ -20,6 +21,8 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AuthzService } from '../authz/authz.service';
 import { ListEnvironmentsDto } from './dto/list-environments.dto';
 import { LockEnvironmentDto } from './dto/lock-environment.dto';
+import { UpdateHibernationDto } from './dto/update-hibernation.dto';
+import { EnvironmentHibernationService } from './environment-hibernation.service';
 import { EnvironmentLocksService } from './environment-locks.service';
 import { EnvironmentsService } from './environments.service';
 
@@ -29,6 +32,7 @@ export class EnvironmentsController {
   constructor(
     private readonly environments: EnvironmentsService,
     private readonly locks: EnvironmentLocksService,
+    private readonly hibernation: EnvironmentHibernationService,
     private readonly authz: AuthzService,
   ) {}
 
@@ -70,5 +74,35 @@ export class EnvironmentsController {
       req.auditAction = 'environments.force_unlock';
       req.auditContext = { releasedLock: released };
     }
+  }
+
+  @Put(':id/hibernation')
+  @Audit('environments.hibernation_update')
+  updateHibernation(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: UpdateHibernationDto,
+    @CurrentUser() user: User,
+  ) {
+    return this.hibernation.updateSettings(id, user, dto);
+  }
+
+  @Post(':id/wake')
+  @HttpCode(HttpStatus.OK)
+  @Audit('environments.wake')
+  wake(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentUser() user: User,
+  ) {
+    return this.hibernation.wake(id, user);
+  }
+
+  @Post(':id/hibernate')
+  @HttpCode(HttpStatus.OK)
+  @Audit('environments.hibernate')
+  hibernate(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentUser() user: User,
+  ) {
+    return this.hibernation.hibernateNow(id, user);
   }
 }

@@ -53,6 +53,12 @@ export const envSchema = z.object({
   // worker comms stay on the Redis queues.
   WORKER_HTTP_URL: z.url().default('http://localhost:8081'),
 
+  // ---- traefik metrics ----
+  // Prometheus exposition on Traefik's dedicated `metrics` entrypoint (:8082),
+  // the idle signal hibernation polls. `http://traefik:8082/metrics` inside
+  // compose; the localhost default is for Nest running on the host in dev.
+  TRAEFIK_METRICS_URL: z.url().default('http://localhost:8082/metrics'),
+
   // ---- public URLs ----
   // Public origin of this API (used to build the GitHub OAuth callback
   // `${PUBLIC_API_URL}/integrations/github/callback`) and of the SPA (the

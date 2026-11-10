@@ -20,17 +20,27 @@ export class LogTailer {
   ) {
     this.redis = new Redis(redisUrl);
     this.logger = new Logger(`LogTailer:${deploymentId.slice(0, 8)}`);
+    this.redis.on('error', (err) => {
+      if (!this.abort.signal.aborted) {
+        this.logger.warn(`redis: ${err.message}`);
+      }
+    });
   }
 
   start(): void {
-    void this.loop().catch((err) =>
-      this.logger.error(`crashed: ${(err as Error).message}`),
-    );
+    void this.loop().catch((err) => {
+      if (!this.abort.signal.aborted) {
+        this.logger.error(`crashed: ${(err as Error).message}`);
+      }
+    });
   }
 
-  async stop(): Promise<void> {
+  // QUIT would queue behind the pending XREAD BLOCK and reject it with
+  // "Connection is closed"; disconnect() drops the socket without a reply to await.
+  stop(): Promise<void> {
     this.abort.abort();
-    await this.redis.quit();
+    this.redis.disconnect();
+    return Promise.resolve();
   }
 
   private async loop(): Promise<void> {

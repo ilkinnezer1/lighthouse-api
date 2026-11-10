@@ -97,7 +97,11 @@ export class WsGateway
   }
 
   async handleDisconnect(): Promise<void> {
-    await this.gcEmptyTailers();
+    try {
+      await this.gcEmptyTailers();
+    } catch (err) {
+      this.logger.error('tailer cleanup failed', err);
+    }
   }
 
   // ─── subscribe / unsubscribe ────────────────────────────────────

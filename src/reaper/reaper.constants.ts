@@ -11,6 +11,10 @@ export const HEARTBEAT_THRESHOLD_MS = 3 * 60 * 1000;
 // — a future heartbeat column could tighten this.
 export const PROVISION_THRESHOLD_MS = 15 * 60 * 1000;
 
+// An imported dump stays PENDING for as long as the browser takes to upload it,
+// which for a multi-GB file on a slow link is far past PROVISION_THRESHOLD_MS.
+export const IMPORT_UPLOAD_THRESHOLD_MS = 6 * 60 * 60 * 1000;
+
 // Statuses where the worker is presumed to have picked up the row and
 // should be heartbeating. QUEUED is excluded — those haven't been picked
 // up yet; SUCCEEDED/FAILED/CANCELLED are terminal.

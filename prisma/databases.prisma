@@ -1,5 +1,5 @@
 // Models: ManagedDatabase, DatabaseSnapshot.
-// Enums: DatabaseType, DatabaseStatus, SnapshotStatus.
+// Enums: DatabaseType, DatabaseStatus, SnapshotStatus, SnapshotOrigin, ImportStatus.
 
 enum DatabaseType {
   POSTGRES
@@ -17,6 +17,18 @@ enum DatabaseStatus {
 enum SnapshotStatus {
   PENDING
   READY
+  FAILED
+}
+
+enum SnapshotOrigin {
+  DUMP
+  IMPORT
+}
+
+enum ImportStatus {
+  UPLOADING
+  RESTORING
+  SUCCEEDED
   FAILED
 }
 
@@ -89,6 +101,12 @@ model DatabaseSnapshot {
   // Set only by a BackupSchedule. Retention prunes automatic snapshots and
   // nothing else: a snapshot a person took deliberately is theirs to delete.
   automatic Boolean @default(false)
+
+  // IMPORT rows hold a user-uploaded dump rather than one Lighthouse took, and
+  // track the upload → restore pipeline in importStatus (null for DUMP rows).
+  origin       SnapshotOrigin @default(DUMP)
+  fileName     String?        @map("file_name")
+  importStatus ImportStatus?  @map("import_status")
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 

@@ -52,6 +52,10 @@ export const envSchema = z.object({
   // proxies runtime container logs from `GET /deployments/:id/logs`; all other
   // worker comms stay on the Redis queues.
   WORKER_HTTP_URL: z.url().default('http://localhost:8081'),
+  // Largest dump `POST /databases/:id/imports` accepts, checked against
+  // Content-Length before any byte is read. The worker enforces the same name
+  // and default while streaming, so keep the two in step.
+  DB_IMPORT_MAX_BYTES: z.coerce.number().int().positive().default(5368709120),
 
   // ---- traefik metrics ----
   // Prometheus exposition on Traefik's dedicated `metrics` entrypoint (:8082),

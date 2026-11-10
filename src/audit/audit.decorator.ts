@@ -18,6 +18,7 @@ export type AuditAction =
   | 'checklist.uncheck'
   | 'databases.create'
   | 'databases.delete'
+  | 'databases.import'
   | 'deployments.action'
   | 'deployments.cancel'
   | 'deployments.create'

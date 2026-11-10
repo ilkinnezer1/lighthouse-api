@@ -35,6 +35,7 @@ export const OUTBOX_EVENT_TYPES = {
   SnapshotQueued: 'database.snapshot_queued',
   SnapshotRestoreQueued: 'database.snapshot_restore_queued',
   SnapshotDeleteQueued: 'database.snapshot_delete_queued',
+  SnapshotImportQueued: 'database.snapshot_import_queued',
 
   // Shared with worker-emitted failures; Nest writes them from the reaper.
   DatabaseProvisionFailed: 'database.provision_failed',

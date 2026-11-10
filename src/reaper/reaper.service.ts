@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import {
   HEARTBEAT_THRESHOLD_MS,
   IN_FLIGHT_STATUSES,
+  IMPORT_UPLOAD_THRESHOLD_MS,
   PROVISION_THRESHOLD_MS,
 } from './reaper.constants';
 
@@ -111,9 +112,16 @@ export class ReaperService {
   @Cron(CronExpression.EVERY_MINUTE)
   async reapStuckSnapshots(): Promise<void> {
     const cutoff = new Date(Date.now() - PROVISION_THRESHOLD_MS);
+    const importCutoff = new Date(Date.now() - IMPORT_UPLOAD_THRESHOLD_MS);
     const stale = await this.prisma.databaseSnapshot.findMany({
-      where: { status: 'PENDING', createdAt: { lt: cutoff } },
-      select: { id: true },
+      where: {
+        status: 'PENDING',
+        OR: [
+          { origin: 'DUMP', createdAt: { lt: cutoff } },
+          { origin: 'IMPORT', createdAt: { lt: importCutoff } },
+        ],
+      },
+      select: { id: true, origin: true },
     });
     if (stale.length === 0) return;
 
@@ -122,10 +130,17 @@ export class ReaperService {
         await this.prisma.$transaction(async (tx) => {
           const won = await tx.databaseSnapshot.updateMany({
             where: { id: s.id, status: 'PENDING' },
-            data: {
-              status: 'FAILED',
-              errorSummary: 'snapshot timed out — worker presumed dead',
-            },
+            data:
+              s.origin === 'IMPORT'
+                ? {
+                    status: 'FAILED',
+                    importStatus: 'FAILED',
+                    errorSummary: 'upload timed out — never completed',
+                  }
+                : {
+                    status: 'FAILED',
+                    errorSummary: 'snapshot timed out — worker presumed dead',
+                  },
           });
           if (won.count === 0) return;
           await tx.eventOutbox.create({

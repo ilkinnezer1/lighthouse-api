@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import type { GithubApiService } from '../github/github-api.service';
 import type { BranchLabelsService } from '../jira/branch-labels.service';
 import type { PrismaService } from '../prisma/prisma.service';
@@ -12,9 +13,12 @@ interface Harness {
   service: DeploymentBranchesService;
   sentBody: () => Record<string, unknown> | null;
   workerJson: jest.Mock;
+  listBranches: jest.Mock;
 }
 
-function harness(opts: { workerThrows?: boolean } = {}): Harness {
+function harness(
+  opts: { workerThrows?: boolean; linked?: boolean } = {},
+): Harness {
   let sent: Record<string, unknown> | null = null;
 
   const prisma = {
@@ -25,20 +29,21 @@ function harness(opts: { workerThrows?: boolean } = {}): Harness {
           project: {
             id: PROJECT_ID,
             repoUrl: REPO_URL,
-            providerRepoFullName: 'acme/app',
+            providerRepoFullName: opts.linked === false ? null : 'acme/app',
             organizationId: 'org-1',
+            defaultBranch: 'main',
           },
         }),
     },
   } as unknown as PrismaService;
 
-  const github = {
-    listBranches: () =>
-      Promise.resolve([
-        { name: 'main', sha: 'sha-main' },
-        { name: 'feature/x', sha: 'sha-x' },
-      ]),
-  } as unknown as GithubApiService;
+  const listBranches = jest.fn(() =>
+    Promise.resolve([
+      { name: 'main', sha: 'sha-main' },
+      { name: 'feature/x', sha: 'sha-x' },
+    ]),
+  );
+  const github = { listBranches } as unknown as GithubApiService;
 
   const branchLabels = {
     forBranches: () => Promise.resolve(new Map()),
@@ -61,6 +66,7 @@ function harness(opts: { workerThrows?: boolean } = {}): Harness {
     ),
     sentBody: () => sent,
     workerJson,
+    listBranches,
   };
 }
 
@@ -112,5 +118,60 @@ describe('checkMerge worker request', () => {
   it('degrades to mergeable: null when the worker fails', async () => {
     const h = harness({ workerThrows: true });
     await expect(check(h)).resolves.toEqual({ mergeable: null });
+  });
+});
+
+describe('resolve', () => {
+  it('pins a GitHub-linked branch set to SHAs', async () => {
+    const h = harness();
+    await expect(
+      h.service.resolve(ENV_ID, 'feature/x', ['main']),
+    ).resolves.toEqual([
+      { role: 'SOURCE', name: 'feature/x', sha: 'sha-x', ordinal: 0 },
+      { role: 'MERGE', name: 'main', sha: 'sha-main', ordinal: 1 },
+    ]);
+  });
+
+  describe('when the project is not linked to GitHub', () => {
+    it("takes the plain path for the environment's branch", async () => {
+      const h = harness({ linked: false });
+      await expect(h.service.resolve(ENV_ID, 'main', [])).resolves.toEqual([]);
+      expect(h.listBranches).not.toHaveBeenCalled();
+    });
+
+    it('deploys another branch by name, unpinned', async () => {
+      const h = harness({ linked: false });
+      await expect(
+        h.service.resolve(ENV_ID, 'feature/x', undefined),
+      ).resolves.toEqual([
+        { role: 'SOURCE', name: 'feature/x', sha: null, ordinal: 0 },
+      ]);
+      expect(h.listBranches).not.toHaveBeenCalled();
+    });
+
+    it.each(['--upload-pack=x', 'a..b', 'a b', '.hidden', 'x.lock', 'x/'])(
+      'rejects the unsafe branch name %p',
+      async (name) => {
+        const h = harness({ linked: false });
+        await expect(h.service.resolve(ENV_ID, name, [])).rejects.toThrow(
+          BadRequestException,
+        );
+      },
+    );
+
+    it('rejects merges with a message naming the requirement', async () => {
+      const h = harness({ linked: false });
+      await expect(
+        h.service.resolve(ENV_ID, 'main', ['feature/x']),
+      ).rejects.toThrow('Merging branches needs a GitHub-linked repository');
+    });
+
+    it('lets the merge check pass a lone branch', async () => {
+      const h = harness({ linked: false });
+      await expect(
+        h.service.checkMerge(ENV_ID, 'feature/x', []),
+      ).resolves.toEqual({ mergeable: true });
+      expect(h.workerJson).not.toHaveBeenCalled();
+    });
   });
 });

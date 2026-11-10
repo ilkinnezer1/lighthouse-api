@@ -128,6 +128,14 @@ export class DeploymentsService {
           issueTitle: b.issueTitle,
         }))
       : this.pinnedSourceRow(src.environment.branch, src.commitSha);
+    // An unlinked repo's SOURCE row is stored by name only; pin it to the commit
+    // that build produced, or the rollback would deploy the branch's current tip.
+    if (branchRows.length === 1 && !branchRows[0].sha) {
+      branchRows[0].sha = this.pinnedSourceRow(
+        branchRows[0].name,
+        src.commitSha,
+      )[0].sha;
+    }
 
     return this.enqueue(src.environmentId, triggeredByUserId, branchRows, {
       sha: src.commitSha ?? undefined,

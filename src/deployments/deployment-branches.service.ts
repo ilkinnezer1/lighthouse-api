@@ -58,8 +58,12 @@ export class DeploymentBranchesService {
    * when nothing is requested, so plain deploys keep the fast path (worker
    * clones the environment's branch). Otherwise the first row is the SOURCE
    * (defaulting to the environment's branch) followed by deduped MERGE branches
-   * in order. Throws if the repo is unlinked, GitHub is unreachable, or any
-   * named branch does not exist.
+   * in order. Throws if GitHub is unreachable or any named branch does not
+   * exist.
+   *
+   * A repo not linked to GitHub has nothing to pin SHAs against, so it only
+   * deploys a single branch by name: [] for the environment's own branch, or
+   * one unpinned SOURCE row the worker fetches by name.
    */
   async resolve(
     environmentId: string,
@@ -73,9 +77,35 @@ export class DeploymentBranchesService {
       return [];
     }
 
-    const { source, shaByName, organizationId } =
-      await this.resolveAvailableBranches(environmentId, requestedSource);
+    const env = await this.loadEnvironment(environmentId);
+    const source = requestedSource || env.branch;
+    if (!source) {
+      throw new BadRequestException('No source branch to deploy');
+    }
+    const { organizationId, providerRepoFullName, defaultBranch } = env.project;
 
+    if (!providerRepoFullName) {
+      if (merges.length > 0) {
+        throw new BadRequestException(
+          'Merging branches needs a GitHub-linked repository',
+        );
+      }
+      if (source === (env.branch || defaultBranch)) {
+        return [];
+      }
+      if (!isSafeBranchName(source)) {
+        throw new BadRequestException(`Invalid branch name: ${source}`);
+      }
+      const rows: BranchRow[] = [
+        { role: 'SOURCE', name: source, sha: null, ordinal: 0 },
+      ];
+      return this.withIssueSnapshot(rows, organizationId, viewerId);
+    }
+
+    const shaByName = await this.fetchBranchShas(
+      organizationId,
+      providerRepoFullName,
+    );
     const unknown = [source, ...merges].filter((n) => !shaByName.has(n));
     if (unknown.length > 0) {
       throw new BadRequestException(
@@ -180,39 +210,30 @@ export class DeploymentBranchesService {
     }
   }
 
-  /** Load the env's repo, fetch its branches, and pick the source branch. */
-  private async resolveAvailableBranches(
-    environmentId: string,
-    requestedSource: string | undefined,
-  ): Promise<{
-    source: string;
-    shaByName: Map<string, string>;
-    organizationId: string;
-  }> {
+  private async loadEnvironment(environmentId: string) {
     const env = await this.prisma.environment.findUnique({
       where: { id: environmentId },
       select: {
         branch: true,
         project: {
-          select: { providerRepoFullName: true, organizationId: true },
+          select: {
+            providerRepoFullName: true,
+            organizationId: true,
+            defaultBranch: true,
+          },
         },
       },
     });
     if (!env) {
       throw new NotFoundException('Environment not found');
     }
+    return env;
+  }
 
-    const source = requestedSource || env.branch;
-    if (!source) {
-      throw new BadRequestException('No source branch to deploy');
-    }
-    const { organizationId, providerRepoFullName } = env.project;
-    if (!providerRepoFullName) {
-      throw new BadRequestException(
-        'Project is not linked to a GitHub repository',
-      );
-    }
-
+  private async fetchBranchShas(
+    organizationId: string,
+    providerRepoFullName: string,
+  ): Promise<Map<string, string>> {
     const branches = await this.github.listBranches(
       organizationId,
       providerRepoFullName,
@@ -220,12 +241,7 @@ export class DeploymentBranchesService {
     if (branches === null) {
       throw new BadGatewayException('Could not fetch branches from GitHub');
     }
-
-    return {
-      source,
-      shaByName: new Map(branches.map((b) => [b.name, b.sha])),
-      organizationId,
-    };
+    return new Map(branches.map((b) => [b.name, b.sha]));
   }
 
   /** Source first (ordinal 0), then deduped merges in order (ordinal 1..N). */
@@ -251,4 +267,21 @@ export class DeploymentBranchesService {
     }
     return rows;
   }
+}
+
+// Unpinned names reach `git fetch` on the worker as an argv entry, so this is a
+// conservative subset of git-check-ref-format that also rules out option-like
+// names. GitHub-linked names need no check: they must match a listed branch.
+function isSafeBranchName(name: string): boolean {
+  return (
+    /^[A-Za-z0-9._/-]+$/.test(name) &&
+    !name.startsWith('-') &&
+    !name.startsWith('/') &&
+    !name.endsWith('/') &&
+    !name.endsWith('.') &&
+    !name.endsWith('.lock') &&
+    !name.includes('..') &&
+    !name.includes('//') &&
+    !name.split('/').some((part) => part.startsWith('.'))
+  );
 }
